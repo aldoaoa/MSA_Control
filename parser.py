@@ -55,8 +55,8 @@ if st.button("🚀 Ejecutar Migración", type="primary"):
                     'MODELO': 'modelo',
                     'SERIE': 'serie',
                     'VIGENCIA': 'vigencia_meses',
-                    'INFORME ': 'informe_reciente', # Ojo con el espacio extra si lo tiene tu CSV
-                    'FECHA DE CREACION ': 'fecha_creacion',
+                    'INFORME': 'informe_reciente',       # <-- ¡Corregido (sin espacio final)!
+                    'FECHA DE CREACION': 'fecha_creacion', # <-- ¡Corregido (sin espacio final)!
                     'FECHA DE VENC.': 'fecha_vencimiento',
                     'ESTATUS': 'estatus'
                 })
