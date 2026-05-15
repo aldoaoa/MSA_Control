@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import numpy as np  # <-- AGREGA ESTA LÍNEA
 from supabase import create_client, Client
 import dateparser
 
@@ -60,7 +61,7 @@ if st.button("🚀 Ejecutar Migración", type="primary"):
                     'ESTATUS': 'estatus'
                 })
 
-                datos_equipos = datos_equipos.where(pd.notnull(datos_equipos), None)
+                datos_equipos = datos_equipos.astype(object).replace({np.nan: None, pd.NA: None})
                 records_equipos = datos_equipos.to_dict(orient='records')
                 
                 res_eq = supabase.table('equipos_msa').upsert(records_equipos).execute()
@@ -92,7 +93,7 @@ if st.button("🚀 Ejecutar Migración", type="primary"):
                     'COMENTARIO': 'comentario'
                 })
 
-                datos_informes = datos_informes.where(pd.notnull(datos_informes), None)
+                datos_informes = datos_informes.astype(object).replace({np.nan: None, pd.NA: None})
                 records_informes = datos_informes.to_dict(orient='records')
 
                 res_inf = supabase.table('informes_msa').upsert(records_informes).execute()
