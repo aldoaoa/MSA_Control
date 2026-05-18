@@ -119,77 +119,92 @@ def logout():
 
 def modulo_informes():
     st.subheader("📝 Registrar Nuevo Informe MSA")
-    st.info("Al registrar el informe, el sistema recalculará automáticamente la fecha de vencimiento del equipo basándose en su vigencia configurada.")
     
-    with st.form("form_nuevo_informe", clear_on_submit=True):
-        col1, col2 = st.columns(2)
+    # Paso 1: Validar el ID del equipo fuera del formulario para consultar la BD
+    id_equipo = st.text_input("ID del Equipo (Ej. BCS-QRO-LAB-MIC001):").strip()
+    
+    if id_equipo:
+        with st.spinner("Consultando vigencia actual del equipo..."):
+            res_eq = supabase.table('equipos_msa').select('descripcion, marca, modelo, vigencia_meses').eq('id_equipo', id_equipo).execute()
         
-        with col1:
-            id_equipo = st.text_input("ID del Equipo (Ej. BCS-QRO-LAB-MIC001) *")
-            consecutivo = st.text_input("Consecutivo del Informe (Ej. BCS-EST-133-26) *")
-            # Selector de fecha: default hoy, pero totalmente editable
-            fecha_informe = st.date_input("Fecha del Estudio *", value=datetime.date.today())
-            estudio = st.text_input("Tipo de Estudio (Ej. GRRA, GRRV, LINEALIDAD)")
+        if res_eq.data:
+            equipo = res_eq.data[0]
+            # Obtenemos la vigencia dada de alta (si no existe, usamos 12 por defecto)
+            vigencia_default = equipo.get('vigencia_meses') if equipo.get('vigencia_meses') else 12
             
-        with col2:
-            proyecto = st.text_input("Proyecto")
-            ubicacion = st.text_input("Ubicación en Planta")
-            comentario = st.text_area("Comentarios / Observaciones")
+            st.success(f"📦 Equipo confirmado: **{equipo['descripcion']}** ({equipo['marca']} {equipo['modelo']})")
             
-        st.markdown("*Campos obligatorios")
-        enviado = st.form_submit_button("💾 Registrar Informe y Actualizar Equipo", type="primary", use_container_width=True)
-        
-        if enviado:
-            if not id_equipo or not consecutivo:
-                st.error("⚠️ El ID del Equipo y el Consecutivo son obligatorios.")
-            else:
-                id_limpio = id_equipo.strip()
+            # Paso 2: Desplegar el formulario de registro con la vigencia precargada
+            with st.form("form_registro_informe", clear_on_submit=True):
+                col1, col2 = st.columns(2)
                 
-                # 1. Verificar que el equipo exista y obtener su vigencia
-                res_eq = supabase.table('equipos_msa').select('vigencia_meses').eq('id_equipo', id_limpio).execute()
+                with col1:
+                    consecutivo = st.text_input("Consecutivo del Informe (Ej. BCS-EST-133-26) *")
+                    fecha_informe = st.date_input("Fecha del Estudio *", value=datetime.date.today())
+                    estudio = st.text_input("Tipo de Estudio (Ej. GRRA, GRRV, LINEALIDAD)")
+                    
+                with col2:
+                    proyecto = st.text_input("Proyecto")
+                    ubicacion = st.text_input("Ubicación en Planta")
+                    
+                    # El valor por defecto es dinámico, extraído de la base de datos, pero totalmente modificable
+                    vigencia_estudio = st.number_input(
+                        "Vigencia para esta validación (Meses) *", 
+                        min_value=1, 
+                        value=int(vigencia_default), 
+                        step=1,
+                        help="Cambia este valor si la periodicidad del estudio para este equipo se ha modificado."
+                    )
+                    
+                    comentario = st.text_area("Comentarios / Observaciones")
+                    
+                st.markdown("*Campos obligatorios")
+                enviado = st.form_submit_button("💾 Guardar Informe y Actualizar Vencimiento", type="primary", use_container_width=True)
                 
-                if not res_eq.data:
-                    st.error(f"❌ El equipo **{id_limpio}** no existe en el inventario. Por favor, regístralo primero en la pestaña de Altas.")
-                else:
-                    # Si por alguna razón no tiene vigencia registrada, asumimos 12 meses estándar
-                    vigencia_meses = res_eq.data[0].get('vigencia_meses')
-                    if not vigencia_meses:
-                        vigencia_meses = 12 
-                    
-                    # 2. Calcular la nueva fecha de vencimiento usando pandas DateOffset
-                    fecha_base = pd.to_datetime(fecha_informe)
-                    fecha_vencimiento = fecha_base + pd.DateOffset(months=vigencia_meses)
-                    
-                    # Formateamos las fechas a texto para Supabase (YYYY-MM-DD)
-                    fecha_vencimiento_str = fecha_vencimiento.strftime('%Y-%m-%d')
-                    fecha_informe_str = fecha_base.strftime('%Y-%m-%d')
-                    
-                    # 3. Construir el nuevo informe
-                    nuevo_informe = {
-                        "consecutivo": consecutivo.strip(),
-                        "fecha": fecha_informe_str,
-                        "proyecto": proyecto.strip() if proyecto else None,
-                        "ubicacion": ubicacion.strip() if ubicacion else None,
-                        "estudio": estudio.strip() if estudio else None,
-                        "comentario": comentario.strip() if comentario else id_limpio
-                    }
-                    
-                    try:
-                        # 4. Insertar el informe en el historial
-                        supabase.table('informes_msa').insert(nuevo_informe).execute()
-                        
-                        # 5. Actualizar el equipo con su nueva vida útil
-                        datos_actualizar_eq = {
-                            "informe_reciente": consecutivo.strip(),
-                            "fecha_vencimiento": fecha_vencimiento_str,
-                            "estatus": "VIGENTE"
-                        }
-                        supabase.table('equipos_msa').update(datos_actualizar_eq).eq('id_equipo', id_limpio).execute()
-                        
-                        st.success(f"✅ Informe **{consecutivo.strip()}** guardado.")
-                        st.info(f"🔄 El equipo **{id_limpio}** fue actualizado a VIGENTE con próximo vencimiento el **{fecha_vencimiento_str}**.")
-                    except Exception as e:
-                        st.error(f"❌ Hubo un error al guardar en la base de datos: {e}")
+                if enviado:
+                    if not consecutivo:
+                        st.error("⚠️ El Consecutivo del Informe es obligatorio.")
+                    else:
+                        try:
+                            # Calcular la nueva fecha de vencimiento usando el valor del input (sea el de la BD o el modificado)
+                            fecha_base = pd.to_datetime(fecha_informe)
+                            fecha_vencimiento = fecha_base + pd.DateOffset(months=vigencia_estudio)
+                            
+                            fecha_vencimiento_str = fecha_vencimiento.strftime('%Y-%m-%d')
+                            fecha_informe_str = fecha_base.strftime('%Y-%m-%d')
+                            
+                            # 1. Registrar el informe en la tabla 'informes_msa'
+                            nuevo_informe = {
+                                "consecutivo": consecutivo.strip(),
+                                "fecha": fecha_informe_str,
+                                "proyecto": proyecto.strip() if proyecto else None,
+                                "ubicacion": ubicacion.strip() if ubicacion else None,
+                                "estudio": estudio.strip() if estudio else None,
+                                "comentario": comentario.strip() if comentario else id_equipo
+                            }
+                            supabase.table('informes_msa').insert(nuevo_informe).execute()
+                            
+                            # 2. Actualizar el equipo (Modifica el estatus, amarra el nuevo informe, calcula vencimiento 
+                            # y actualiza la vigencia default por si fue modificada)
+                            datos_actualizar_eq = {
+                                "informe_reciente": consecutivo.strip(),
+                                "fecha_vencimiento": fecha_vencimiento_str,
+                                "vigencia_meses": vigencia_estudio, # Se guarda el nuevo estándar si cambió
+                                "estatus": "VIGENTE"
+                            }
+                            supabase.table('equipos_msa').update(datos_actualizar_eq).eq('id_equipo', id_equipo).execute()
+                            
+                            st.success(f"✅ Informe **{consecutivo.strip()}** guardado correctamente.")
+                            st.info(f"🔄 Equipo **{id_equipo}** actualizado a VIGENTE. Próximo vencimiento: **{fecha_vencimiento_str}**.")
+                            
+                            # Si la vigencia cambió, avisar al usuario
+                            if vigencia_estudio != vigencia_default:
+                                st.warning(f"⚙️ Nota: La vigencia por defecto del equipo ha sido actualizada de {vigencia_default} a {vigencia_estudio} meses para futuros estudios.")
+                                
+                        except Exception as e:
+                            st.error(f"❌ Ocurrió un error al procesar la actualización: {e}")
+        else:
+            st.error(f"❌ El ID de equipo **{id_equipo}** no está registrado en el inventario. Verifícalo o dalos de alta primero.")
 
 # --- MÓDULO REUTILIZABLE DE BÚSQUEDA ---
 def modulo_busqueda():
