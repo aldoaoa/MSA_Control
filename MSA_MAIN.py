@@ -4,6 +4,7 @@ import datetime
 import cv2
 import numpy as np
 from pyzbar.pyzbar import decode
+import pandas as pd
 
 # Configuración de la página
 st.set_page_config(page_title="Control MSA - Metrología", page_icon="🔬", layout="wide")
