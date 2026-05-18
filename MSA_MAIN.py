@@ -23,7 +23,8 @@ def login(email, password):
         st.session_state.user = response.user
         st.rerun()
     except Exception as e:
-        st.error("Credenciales incorrectas o error de conexión.")
+        # Aquí imprimimos el error exacto que nos devuelve Supabase
+        st.error(f"Detalle del error: {e}")
 
 def logout():
     supabase.auth.sign_out()
