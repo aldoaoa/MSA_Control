@@ -117,6 +117,80 @@ def logout():
     st.session_state.user = None
     st.rerun()
 
+def modulo_informes():
+    st.subheader("📝 Registrar Nuevo Informe MSA")
+    st.info("Al registrar el informe, el sistema recalculará automáticamente la fecha de vencimiento del equipo basándose en su vigencia configurada.")
+    
+    with st.form("form_nuevo_informe", clear_on_submit=True):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            id_equipo = st.text_input("ID del Equipo (Ej. BCS-QRO-LAB-MIC001) *")
+            consecutivo = st.text_input("Consecutivo del Informe (Ej. BCS-EST-133-26) *")
+            # Selector de fecha: default hoy, pero totalmente editable
+            fecha_informe = st.date_input("Fecha del Estudio *", value=datetime.date.today())
+            estudio = st.text_input("Tipo de Estudio (Ej. GRRA, GRRV, LINEALIDAD)")
+            
+        with col2:
+            proyecto = st.text_input("Proyecto")
+            ubicacion = st.text_input("Ubicación en Planta")
+            comentario = st.text_area("Comentarios / Observaciones")
+            
+        st.markdown("*Campos obligatorios")
+        enviado = st.form_submit_button("💾 Registrar Informe y Actualizar Equipo", type="primary", use_container_width=True)
+        
+        if enviado:
+            if not id_equipo or not consecutivo:
+                st.error("⚠️ El ID del Equipo y el Consecutivo son obligatorios.")
+            else:
+                id_limpio = id_equipo.strip()
+                
+                # 1. Verificar que el equipo exista y obtener su vigencia
+                res_eq = supabase.table('equipos_msa').select('vigencia_meses').eq('id_equipo', id_limpio).execute()
+                
+                if not res_eq.data:
+                    st.error(f"❌ El equipo **{id_limpio}** no existe en el inventario. Por favor, regístralo primero en la pestaña de Altas.")
+                else:
+                    # Si por alguna razón no tiene vigencia registrada, asumimos 12 meses estándar
+                    vigencia_meses = res_eq.data[0].get('vigencia_meses')
+                    if not vigencia_meses:
+                        vigencia_meses = 12 
+                    
+                    # 2. Calcular la nueva fecha de vencimiento usando pandas DateOffset
+                    fecha_base = pd.to_datetime(fecha_informe)
+                    fecha_vencimiento = fecha_base + pd.DateOffset(months=vigencia_meses)
+                    
+                    # Formateamos las fechas a texto para Supabase (YYYY-MM-DD)
+                    fecha_vencimiento_str = fecha_vencimiento.strftime('%Y-%m-%d')
+                    fecha_informe_str = fecha_base.strftime('%Y-%m-%d')
+                    
+                    # 3. Construir el nuevo informe
+                    nuevo_informe = {
+                        "consecutivo": consecutivo.strip(),
+                        "fecha": fecha_informe_str,
+                        "proyecto": proyecto.strip() if proyecto else None,
+                        "ubicacion": ubicacion.strip() if ubicacion else None,
+                        "estudio": estudio.strip() if estudio else None,
+                        "comentario": comentario.strip() if comentario else id_limpio
+                    }
+                    
+                    try:
+                        # 4. Insertar el informe en el historial
+                        supabase.table('informes_msa').insert(nuevo_informe).execute()
+                        
+                        # 5. Actualizar el equipo con su nueva vida útil
+                        datos_actualizar_eq = {
+                            "informe_reciente": consecutivo.strip(),
+                            "fecha_vencimiento": fecha_vencimiento_str,
+                            "estatus": "VIGENTE"
+                        }
+                        supabase.table('equipos_msa').update(datos_actualizar_eq).eq('id_equipo', id_limpio).execute()
+                        
+                        st.success(f"✅ Informe **{consecutivo.strip()}** guardado.")
+                        st.info(f"🔄 El equipo **{id_limpio}** fue actualizado a VIGENTE con próximo vencimiento el **{fecha_vencimiento_str}**.")
+                    except Exception as e:
+                        st.error(f"❌ Hubo un error al guardar en la base de datos: {e}")
+
 # --- MÓDULO REUTILIZABLE DE BÚSQUEDA ---
 def modulo_busqueda():
     tab_escaner, tab_manual = st.tabs(["📷 Escáner QR", "⌨️ Búsqueda Manual"])
@@ -267,7 +341,7 @@ def vista_admin():
         # Aquí irá el CRUD de equipos
         
     with tab_informe:
-        st.write("Formulario para registrar un nuevo estudio y actualizar la fecha de vencimiento.")
+        modulo_informes()
         # Aquí irá el registro de informes
 
 def mostrar_dashboard():
