@@ -156,6 +156,98 @@ def vista_publica():
     st.markdown("---")
     modulo_busqueda()
 
+def modulo_altas_bajas():
+    # Usamos un radio button para cambiar entre Alta y Baja
+    accion = st.radio("Selecciona la acción a realizar:", ["➕ Alta de Equipo", "🔻 Modificar Estatus / Baja"], horizontal=True)
+    st.markdown("---")
+    
+    if accion == "➕ Alta de Equipo":
+        st.subheader("Registrar Nuevo Equipo")
+        
+        # El formulario agrupa los datos hasta que se presiona "Guardar"
+        with st.form("form_alta_equipo", clear_on_submit=True):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                id_equipo = st.text_input("ID del Equipo (Ej. BCS-QRO-LAB-MIC002) *")
+                descripcion = st.text_input("Descripción (Ej. MICROMETRO) *")
+                marca = st.text_input("Marca")
+                modelo = st.text_input("Modelo")
+                serie = st.text_input("Número de Serie")
+                
+            with col2:
+                ubicacion = st.text_input("Ubicación (Ej. 1. LABORATORIO)")
+                estudio = st.text_input("Estudio Requerido (Ej. GRRV)")
+                proyecto = st.text_input("Proyecto")
+                vigencia = st.number_input("Vigencia (Meses)", min_value=1, value=12, step=1)
+                estatus = st.selectbox("Estatus Inicial", ["VIGENTE", "POR VENCER", "VENCIDO", "EN PROCESO", "BAJA"])
+            
+            st.markdown("*Campos obligatorios")
+            enviado = st.form_submit_button("💾 Guardar Equipo", type="primary", use_container_width=True)
+            
+            if enviado:
+                if not id_equipo or not descripcion:
+                    st.error("⚠️ El ID y la Descripción son obligatorios para el alta.")
+                else:
+                    # Preparamos el diccionario para Supabase
+                    nuevo_equipo = {
+                        "id_equipo": id_equipo.strip(),
+                        "descripcion": descripcion.strip(),
+                        "marca": marca.strip() if marca else None,
+                        "modelo": modelo.strip() if modelo else None,
+                        "serie": serie.strip() if serie else None,
+                        "ubicacion": ubicacion.strip() if ubicacion else None,
+                        "estudio": estudio.strip() if estudio else None,
+                        "proyecto": proyecto.strip() if proyecto else None,
+                        "vigencia_meses": vigencia,
+                        "estatus": estatus,
+                        # Usamos la fecha del sistema para la creación
+                        "fecha_creacion": datetime.date.today().strftime('%Y-%m-%d')
+                    }
+                    try:
+                        supabase.table("equipos_msa").insert(nuevo_equipo).execute()
+                        st.success(f"✅ Equipo **{id_equipo}** registrado exitosamente en el inventario.")
+                    except Exception as e:
+                        # Si el ID ya existe, Supabase lanzará un error de llave duplicada
+                        st.error(f"❌ Error al guardar. Es posible que el ID ya exista. Detalle: {e}")
+                        
+    else:
+        st.subheader("Actualizar Estatus o Dar de Baja")
+        id_busqueda = st.text_input("Ingresa el ID del equipo a modificar:")
+        
+        if st.button("Buscar Equipo"):
+            if id_busqueda:
+                st.session_state['id_modificar'] = id_busqueda.strip()
+        
+        # Si ya buscamos un equipo, mostramos sus datos y la opción de cambiar estatus
+        if 'id_modificar' in st.session_state:
+            id_mod = st.session_state['id_modificar']
+            res = supabase.table('equipos_msa').select('descripcion, marca, modelo, estatus').eq('id_equipo', id_mod).execute()
+            
+            if res.data:
+                equipo = res.data[0]
+                st.info(f"Modificando: **{equipo['descripcion']}** ({equipo['marca']} {equipo['modelo']})")
+                
+                # Buscamos el índice del estatus actual para que aparezca seleccionado
+                opciones_estatus = ["VIGENTE", "POR VENCER", "VENCIDO", "EN PROCESO", "BAJA"]
+                estatus_actual = equipo['estatus'] if equipo['estatus'] in opciones_estatus else "VIGENTE"
+                indice_actual = opciones_estatus.index(estatus_actual)
+                
+                with st.form("form_modificar_estatus"):
+                    nuevo_estatus = st.selectbox("Actualizar Estatus", opciones_estatus, index=indice_actual)
+                    btn_actualizar = st.form_submit_button("Actualizar Estatus", type="primary")
+                    
+                    if btn_actualizar:
+                        try:
+                            supabase.table('equipos_msa').update({'estatus': nuevo_estatus}).eq('id_equipo', id_mod).execute()
+                            st.success(f"✅ Estatus de **{id_mod}** actualizado a **{nuevo_estatus}**.")
+                            del st.session_state['id_modificar'] # Limpiamos la memoria
+                            st.rerun() # Refrescamos para aplicar cambios visuales
+                        except Exception as e:
+                            st.error(f"❌ Error al actualizar: {e}")
+            else:
+                st.warning("⚠️ No se encontró ningún equipo con ese ID.")
+
 def vista_admin():
     st.title("⚙️ Panel de Control Metrología")
     
@@ -171,7 +263,7 @@ def vista_admin():
         modulo_busqueda()
     
     with tab_altas:
-        st.write("Formulario para dar de alta nuevos equipos o darlos de baja.")
+        modulo_altas_bajas()
         # Aquí irá el CRUD de equipos
         
     with tab_informe:
