@@ -1,5 +1,6 @@
 import streamlit as st
 from supabase import create_client, Client
+import datetime
 
 # Configuración de la página
 st.set_page_config(page_title="Control MSA - Metrología", page_icon="🔬", layout="wide")
@@ -13,6 +14,67 @@ def init_connection():
 
 supabase = init_connection()
 
+def vista_publica():
+    st.title("🔬 Consulta de Equipos MSA")
+    st.markdown("---")
+    
+    # Usamos un contenedor centrado para la búsqueda
+    col1, col2, col3 = st.columns([1, 2, 1])
+    
+    with col2:
+        st.info("💡 **Tip:** Puedes escribir el ID o usar un escáner QR.")
+        # El text_input es perfecto para escáneres físicos tipo pistola
+        id_busqueda = st.text_input("ID del equipo (Ej. BCS-QRO-LAB-MIC001):", key="buscador_publico")
+        
+        if st.button("🔍 Buscar Equipo", type="primary", use_container_width=True):
+            if id_busqueda:
+                # Limpiamos espacios accidentales
+                id_limpio = id_busqueda.strip()
+                mostrar_resultado_equipo(id_limpio)
+            else:
+                st.warning("⚠️ Por favor, ingresa un ID válido.")
+
+def mostrar_resultado_equipo(id_equipo):
+    st.markdown("---")
+    with st.spinner("Buscando en la base de datos..."):
+        # Consulta a Supabase
+        respuesta = supabase.table('equipos_msa').select("*").eq('id_equipo', id_equipo).execute()
+        
+    if respuesta.data:
+        equipo = respuesta.data[0]
+        
+        # Lógica visual para el estatus y fechas
+        estatus = equipo['estatus']
+        fecha_venc = equipo['fecha_vencimiento']
+        
+        # Tarjeta visual con colores dinámicos
+        if estatus == 'VIGENTE':
+            st.success(f"### 🟢 Estatus: {estatus}")
+        elif estatus == 'POR VENCER' or estatus == 'EN PROCESO':
+            st.warning(f"### 🟡 Estatus: {estatus}")
+        else:
+            st.error(f"### 🔴 Estatus: {estatus}")
+            
+        # Layout en dos columnas para los datos del equipo
+        c1, c2 = st.columns(2)
+        
+        with c1:
+            st.markdown("#### Datos del Equipo")
+            st.write(f"**ID:** `{equipo['id_equipo']}`")
+            st.write(f"**Descripción:** {equipo['descripcion']}")
+            st.write(f"**Marca:** {equipo['marca']} | **Modelo:** {equipo['modelo']}")
+            st.write(f"**Serie:** {equipo['serie']}")
+            
+        with c2:
+            st.markdown("#### Control MSA")
+            st.write(f"**Ubicación:** {equipo['ubicacion']}")
+            st.write(f"**Estudio requerido:** {equipo['estudio']}")
+            st.write(f"**Último Informe:** {equipo['informe_reciente']}")
+            st.write(f"**Vencimiento:** {fecha_venc}")
+            
+    else:
+        st.error(f"❌ No se encontró ningún equipo registrado con el ID: **{id_equipo}**")
+        
 # --- GESTIÓN DE SESIÓN (LOGIN) ---
 if "user" not in st.session_state:
     st.session_state.user = None
