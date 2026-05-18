@@ -1,47 +1,10 @@
-import streamlit as st
-import pandas as pd
-import numpy as np  # <-- AGREGA ESTA LÍNEA
-from supabase import create_client, Client
-import dateparser
-
-# Configuración de página
-st.set_page_config(page_title="Migración MSA", page_icon="⚙️")
-st.title("⚙️ Migración de Datos MSA a Supabase")
-
-# Explicación breve
-st.markdown("""
-Sube tus archivos CSV exportados desde Excel para actualizar la base de datos de Metrología.
-Asegúrate de subir el archivo de **Equipos** y el de **Informes**.
-""")
-
-# 1. Conexión segura a Supabase usando st.secrets
-try:
-    url: str = st.secrets["SUPABASE_URL"]
-    key: str = st.secrets["SUPABASE_KEY"]
-    supabase: Client = create_client(url, key)
-except Exception as e:
-    st.error("Error conectando a Supabase. Revisa tus secretos en Streamlit Cloud.")
-    st.stop()
-
-# 2. Subida de archivos
-col1, col2 = st.columns(2)
-with col1:
-    archivo_equipos = st.file_uploader("Sube el CSV de Equipos", type=["csv"])
-with col2:
-    archivo_informes = st.file_uploader("Sube el CSV de Informes", type=["csv"])
-
-# 3. Botón de ejecución
-if st.button("🚀 Ejecutar Migración", type="primary"):
-    if not archivo_equipos or not archivo_informes:
-        st.warning("⚠️ Por favor, sube ambos archivos CSV antes de continuar.")
-    else:
-        with st.spinner("Procesando y enviando datos a Supabase..."):
-            try:
-                # ==========================================
+# ==========================================
                 # PROCESAMIENTO DE EQUIPOS
                 # ==========================================
                 st.info("Iniciando procesamiento de Equipos MSA...")
-                df_equipos = pd.read_csv(archivo_equipos)
+                
+                # skiprows=3 ignora las 3 líneas de leyenda (Vigente, Baja, etc.)
+                df_equipos = pd.read_csv(archivo_equipos, skiprows=3)
                 df_equipos.columns = df_equipos.columns.str.strip()
                 df_equipos = df_equipos.dropna(subset=['ID'])
 
@@ -55,11 +18,20 @@ if st.button("🚀 Ejecutar Migración", type="primary"):
                     'MODELO': 'modelo',
                     'SERIE': 'serie',
                     'VIGENCIA': 'vigencia_meses',
-                    'INFORME': 'informe_reciente',       # <-- ¡Corregido (sin espacio final)!
-                    'FECHA DE CREACION': 'fecha_creacion', # <-- ¡Corregido (sin espacio final)!
+                    'INFORME': 'informe_reciente',
+                    'FECHA DE CREACION': 'fecha_creacion',
                     'FECHA DE VENC.': 'fecha_vencimiento',
                     'ESTATUS': 'estatus'
                 })
+
+                # MAGIA: Filtramos la tabla para quedarnos SOLO con las columnas válidas,
+                # descartando cualquier "Unnamed: X" que Excel haya colado.
+                columnas_validas_eq = [
+                    'id_equipo', 'ubicacion', 'descripcion', 'estudio', 'proyecto', 
+                    'marca', 'modelo', 'serie', 'vigencia_meses', 'informe_reciente', 
+                    'fecha_creacion', 'fecha_vencimiento', 'estatus'
+                ]
+                datos_equipos = datos_equipos[columnas_validas_eq]
 
                 datos_equipos = datos_equipos.astype(object).replace({np.nan: None, pd.NA: None})
                 records_equipos = datos_equipos.to_dict(orient='records')
@@ -71,7 +43,9 @@ if st.button("🚀 Ejecutar Migración", type="primary"):
                 # PROCESAMIENTO DE INFORMES
                 # ==========================================
                 st.info("Iniciando procesamiento de Informes...")
-                df_informes = pd.read_csv(archivo_informes)
+                
+                # skiprows=1 ignora la primera fila que dice "LISTADO DE MSA"
+                df_informes = pd.read_csv(archivo_informes, skiprows=1)
                 df_informes.columns = df_informes.columns.str.strip()
                 df_informes = df_informes.dropna(subset=['CONSECUTIVO'])
 
@@ -93,6 +67,12 @@ if st.button("🚀 Ejecutar Migración", type="primary"):
                     'COMENTARIO': 'comentario'
                 })
 
+                # Filtramos columnas basura de los informes también
+                columnas_validas_inf = [
+                    'consecutivo', 'fecha', 'proyecto', 'ubicacion', 'estudio', 'comentario'
+                ]
+                datos_informes = datos_informes[columnas_validas_inf]
+
                 datos_informes = datos_informes.astype(object).replace({np.nan: None, pd.NA: None})
                 records_informes = datos_informes.to_dict(orient='records')
 
@@ -100,6 +80,3 @@ if st.button("🚀 Ejecutar Migración", type="primary"):
                 st.success(f"✅ {len(res_inf.data)} informes insertados/actualizados correctamente.")
                 
                 st.balloons()
-
-            except Exception as e:
-                st.error(f"❌ Ocurrió un error durante la migración: {e}")
