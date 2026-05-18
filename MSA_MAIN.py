@@ -61,17 +61,12 @@ def vista_publica():
 def mostrar_resultado_equipo(id_equipo):
     st.markdown("---")
     with st.spinner("Buscando en la base de datos..."):
-        # Consulta a Supabase
         respuesta = supabase.table('equipos_msa').select("*").eq('id_equipo', id_equipo).execute()
         
     if respuesta.data:
         equipo = respuesta.data[0]
-        
-        # Lógica visual para el estatus y fechas
         estatus = equipo['estatus']
-        fecha_venc = equipo['fecha_vencimiento']
         
-        # Tarjeta visual con colores dinámicos
         if estatus == 'VIGENTE':
             st.success(f"### 🟢 Estatus: {estatus}")
         elif estatus == 'POR VENCER' or estatus == 'EN PROCESO':
@@ -79,9 +74,7 @@ def mostrar_resultado_equipo(id_equipo):
         else:
             st.error(f"### 🔴 Estatus: {estatus}")
             
-        # Layout en dos columnas para los datos del equipo
         c1, c2 = st.columns(2)
-        
         with c1:
             st.markdown("#### Datos del Equipo")
             st.write(f"**ID:** `{equipo['id_equipo']}`")
@@ -94,7 +87,19 @@ def mostrar_resultado_equipo(id_equipo):
             st.write(f"**Ubicación:** {equipo['ubicacion']}")
             st.write(f"**Estudio requerido:** {equipo['estudio']}")
             st.write(f"**Último Informe:** {equipo['informe_reciente']}")
-            st.write(f"**Vencimiento:** {fecha_venc}")
+            st.write(f"**Vencimiento:** {equipo['fecha_vencimiento']}")
+            
+        # --- NUEVA SECCIÓN: ACCESO A CARPETA LOCAL ---
+        st.markdown("---")
+        st.markdown("#### 📁 Archivo del Estudio (Red Local)")
+        
+        ruta_servidor = equipo.get('link_servidor')
+        if ruta_servidor and str(ruta_servidor).strip() not in ['None', '', 'S/D', 'N/A']:
+            st.caption("Por políticas de seguridad del navegador desde la nube, copia la ruta de abajo y pégala en tu Explorador de Windows para abrir la carpeta directamente:")
+            # Muestra la ruta con un botón integrado de copiado a la derecha
+            st.code(ruta_servidor, language="text")
+        else:
+            st.warning("⚠️ Este equipo no tiene registrada una ruta de servidor local para sus archivos de estudio.")
             
     else:
         st.error(f"❌ No se encontró ningún equipo registrado con el ID: **{id_equipo}**")
@@ -360,32 +365,52 @@ def vista_admin():
         # Aquí irá el registro de informes
 
 def mostrar_dashboard():
-    st.subheader("Resumen de Equipos")
+    st.subheader("📊 Estado General del Laboratorio")
     
-    with st.spinner("Cargando métricas..."):
-        # Traemos solo la columna estatus para hacer el conteo rápido
-        res = supabase.table('equipos_msa').select('estatus').execute()
+    with st.spinner("Cargando inventario consolidado..."):
+        # Traemos los datos clave para el listado completo
+        res = supabase.table('equipos_msa').select('id_equipo, descripcion, estudio, fecha_creacion, fecha_vencimiento, estatus').execute()
         
     if res.data:
         df_dash = pd.DataFrame(res.data)
         
+        # Conteos para las métricas fijas
         total = len(df_dash)
         vigentes = len(df_dash[df_dash['estatus'].str.upper() == 'VIGENTE'])
         por_vencer = len(df_dash[df_dash['estatus'].str.upper() == 'POR VENCER'])
         bajas = len(df_dash[df_dash['estatus'].str.upper() == 'BAJA'])
         vencidos = len(df_dash[df_dash['estatus'].str.upper() == 'VENCIDO'])
         
+        # Despliegue de tarjetas de KPI
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("📊 Total Equipos", total)
+        c1.metric("🔬 Total Equipos", total)
         c2.metric("🟢 Vigentes", vigentes)
         c3.metric("🟡 Por Vencer", por_vencer)
-        c4.metric("🔴 Vencidos / Bajas", vencidos + bajas)
+        c4.metric("🔴 Críticos / Bajas", vencidos + bajas)
         
         st.markdown("---")
-        st.write("*(Aquí podemos agregar un gráfico de barras o una tabla filtrada con los equipos críticos próximos a vencer)*")
+        st.subheader("📋 Inventario y Control de Vencimientos")
+        
+        # Renombramos las columnas del DataFrame para que se vea profesional en la UI
+        df_visual = df_dash.rename(columns={
+            'id_equipo': 'ID Equipo',
+            'descripcion': 'Descripción',
+            'estudio': 'Estudio',
+            'fecha_creacion': 'Fecha Último Estudio',
+            'fecha_vencimiento': 'Fecha Vencimiento',
+            'estatus': 'Estatus'
+        })
+        
+        # Mostramos la tabla completa. Streamlit permite ordenar columnas y buscar texto nativamente aquí.
+        st.dataframe(
+            df_visual, 
+            use_container_width=True, 
+            hide_index=True
+        )
+        
     else:
-        st.info("No hay datos suficientes para mostrar el dashboard.")
-
+        st.info("No se encontraron registros de equipos para mostrar en el listado.")
+        
 # --- ENRUTADOR PRINCIPAL ---
 with st.sidebar:
     if st.session_state.user is None:
