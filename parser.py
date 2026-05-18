@@ -38,13 +38,23 @@ if st.button("🚀 Ejecutar Migración", type="primary"):
         with st.spinner("Procesando y enviando datos a Supabase..."):
             try:
 # Función global para traducir CUALQUIER fecha al formato de Supabase
+                # Funciones globales de limpieza
                 def limpiar_fecha(fecha_str):
                     if pd.isna(fecha_str) or str(fecha_str).strip() in ['', 'NaT', 'None']:
                         return None
                     try:
-                        # dateparser entiende "08 de Enero de 2026", "2025-09-03", etc.
                         dt = dateparser.parse(str(fecha_str), languages=['es'])
                         return dt.strftime('%Y-%m-%d') if dt else None
+                    except:
+                        return None
+
+                def limpiar_entero(val):
+                    # Si está vacío o tiene texto raro como S/D, regresamos None (NULL en SQL)
+                    if pd.isna(val) or str(val).strip().upper() in ['', 'NONE', 'NAN', 'NAT', 'S/D', 'N/A', '-']:
+                        return None
+                    try:
+                        # Convertimos a float primero para manejar '12.0', y luego forzamos a int (12)
+                        return int(float(val))
                     except:
                         return None
 
@@ -62,11 +72,13 @@ if st.button("🚀 Ejecutar Migración", type="primary"):
                 df_equipos.columns = df_equipos.columns.str.strip()
                 df_equipos = df_equipos.dropna(subset=['ID'])
 
-                # Limpiamos las fechas de la tabla de equipos ANTES de renombrar
+                # Limpiamos las fechas y los enteros ANTES de renombrar
                 if 'FECHA DE CREACION' in df_equipos.columns:
                     df_equipos['FECHA DE CREACION'] = df_equipos['FECHA DE CREACION'].apply(limpiar_fecha)
                 if 'FECHA DE VENC.' in df_equipos.columns:
                     df_equipos['FECHA DE VENC.'] = df_equipos['FECHA DE VENC.'].apply(limpiar_fecha)
+                if 'VIGENCIA' in df_equipos.columns:
+                    df_equipos['VIGENCIA'] = df_equipos['VIGENCIA'].apply(limpiar_entero)
 
                 datos_equipos = df_equipos.rename(columns={
                     'ID': 'id_equipo',
@@ -111,7 +123,6 @@ if st.button("🚀 Ejecutar Migración", type="primary"):
                 df_informes.columns = df_informes.columns.str.strip()
                 df_informes = df_informes.dropna(subset=['CONSECUTIVO'])
 
-                # Limpiamos las fechas de la tabla de informes
                 if 'FECHA' in df_informes.columns:
                     df_informes['FECHA'] = df_informes['FECHA'].apply(limpiar_fecha)
 
@@ -136,6 +147,5 @@ if st.button("🚀 Ejecutar Migración", type="primary"):
                 st.success(f"✅ {len(res_inf.data)} informes insertados/actualizados correctamente.")
                 
                 st.balloons()
-
             except Exception as e:
                 st.error(f"❌ Ocurrió un error durante la migración: {e}")
