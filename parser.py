@@ -49,11 +49,9 @@ if st.button("🚀 Ejecutar Migración", type="primary"):
                         return None
 
                 def limpiar_entero(val):
-                    # Si está vacío o tiene texto raro como S/D, regresamos None (NULL en SQL)
                     if pd.isna(val) or str(val).strip().upper() in ['', 'NONE', 'NAN', 'NAT', 'S/D', 'N/A', '-']:
                         return None
                     try:
-                        # Convertimos a float primero para manejar '12.0', y luego forzamos a int (12)
                         return int(float(val))
                     except:
                         return None
@@ -71,8 +69,10 @@ if st.button("🚀 Ejecutar Migración", type="primary"):
                 df_equipos = pd.read_csv(archivo_equipos, skiprows=fila_header_eq)
                 df_equipos.columns = df_equipos.columns.str.strip()
                 df_equipos = df_equipos.dropna(subset=['ID'])
+                
+                # ---> ¡NUEVA LÍNEA! Eliminamos IDs duplicados, conservando el último <---
+                df_equipos = df_equipos.drop_duplicates(subset=['ID'], keep='last')
 
-                # Limpiamos las fechas y los enteros ANTES de renombrar
                 if 'FECHA DE CREACION' in df_equipos.columns:
                     df_equipos['FECHA DE CREACION'] = df_equipos['FECHA DE CREACION'].apply(limpiar_fecha)
                 if 'FECHA DE VENC.' in df_equipos.columns:
@@ -107,7 +107,7 @@ if st.button("🚀 Ejecutar Migración", type="primary"):
                 records_equipos = datos_equipos.to_dict(orient='records')
                 
                 res_eq = supabase.table('equipos_msa').upsert(records_equipos).execute()
-                st.success(f"✅ {len(res_eq.data)} equipos insertados/actualizados correctamente.")
+                st.success(f"✅ {len(res_eq.data)} equipos procesados sin duplicados y subidos con éxito.")
 
                 # ==========================================
                 # PROCESAMIENTO DE INFORMES
@@ -122,6 +122,9 @@ if st.button("🚀 Ejecutar Migración", type="primary"):
                 df_informes = pd.read_csv(archivo_informes, skiprows=fila_header_inf)
                 df_informes.columns = df_informes.columns.str.strip()
                 df_informes = df_informes.dropna(subset=['CONSECUTIVO'])
+                
+                # ---> ¡NUEVA LÍNEA! Eliminamos consecutivos duplicados, conservando el último <---
+                df_informes = df_informes.drop_duplicates(subset=['CONSECUTIVO'], keep='last')
 
                 if 'FECHA' in df_informes.columns:
                     df_informes['FECHA'] = df_informes['FECHA'].apply(limpiar_fecha)
@@ -144,7 +147,7 @@ if st.button("🚀 Ejecutar Migración", type="primary"):
                 records_informes = datos_informes.to_dict(orient='records')
 
                 res_inf = supabase.table('informes_msa').upsert(records_informes).execute()
-                st.success(f"✅ {len(res_inf.data)} informes insertados/actualizados correctamente.")
+                st.success(f"✅ {len(res_inf.data)} informes procesados sin duplicados y subidos con éxito.")
                 
                 st.balloons()
             except Exception as e:
