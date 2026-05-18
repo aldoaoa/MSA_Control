@@ -1,4 +1,43 @@
-                # ==========================================
+import streamlit as st
+import pandas as pd
+import numpy as np  # <-- AGREGA ESTA LÍNEA
+from supabase import create_client, Client
+import dateparser
+
+# Configuración de página
+st.set_page_config(page_title="Migración MSA", page_icon="⚙️")
+st.title("⚙️ Migración de Datos MSA a Supabase")
+
+# Explicación breve
+st.markdown("""
+Sube tus archivos CSV exportados desde Excel para actualizar la base de datos de Metrología.
+Asegúrate de subir el archivo de **Equipos** y el de **Informes**.
+""")
+
+# 1. Conexión segura a Supabase usando st.secrets
+try:
+    url: str = st.secrets["SUPABASE_URL"]
+    key: str = st.secrets["SUPABASE_KEY"]
+    supabase: Client = create_client(url, key)
+except Exception as e:
+    st.error("Error conectando a Supabase. Revisa tus secretos en Streamlit Cloud.")
+    st.stop()
+
+# 2. Subida de archivos
+col1, col2 = st.columns(2)
+with col1:
+    archivo_equipos = st.file_uploader("Sube el CSV de Equipos", type=["csv"])
+with col2:
+    archivo_informes = st.file_uploader("Sube el CSV de Informes", type=["csv"])
+
+# 3. Botón de ejecución
+if st.button("🚀 Ejecutar Migración", type="primary"):
+    if not archivo_equipos or not archivo_informes:
+        st.warning("⚠️ Por favor, sube ambos archivos CSV antes de continuar.")
+    else:
+        with st.spinner("Procesando y enviando datos a Supabase..."):
+            try:
+# ==========================================
                 # PROCESAMIENTO DE EQUIPOS
                 # ==========================================
                 st.info("Iniciando procesamiento de Equipos MSA...")
@@ -80,3 +119,6 @@
                 st.success(f"✅ {len(res_inf.data)} informes insertados/actualizados correctamente.")
                 
                 st.balloons()
+
+            except Exception as e:
+                st.error(f"❌ Ocurrió un error durante la migración: {e}")
