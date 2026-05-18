@@ -100,7 +100,7 @@ if st.button("🚀 Ejecutar Migración", type="primary"):
                 columnas_validas_eq = [
                     'id_equipo', 'ubicacion', 'descripcion', 'estudio', 'proyecto', 
                     'marca', 'modelo', 'serie', 'vigencia_meses', 'informe_reciente', 
-                    'fecha_creacion', 'fecha_vencimiento', 'estatus'
+                    'fecha_creacion', 'fecha_vencimiento', 'estatus', 'link_servidor' # <-- NUEVA LÍNEA FILTRO
                 ]
                 datos_equipos = datos_equipos[columnas_validas_eq]
 
@@ -139,10 +139,8 @@ if st.button("🚀 Ejecutar Migración", type="primary"):
                     'COMENTARIO': 'comentario'
                 })
 
-                columnas_validas_eq = [
-                    'id_equipo', 'ubicacion', 'descripcion', 'estudio', 'proyecto', 
-                    'marca', 'modelo', 'serie', 'vigencia_meses', 'informe_reciente', 
-                    'fecha_creacion', 'fecha_vencimiento', 'estatus', 'link_servidor' # <-- NUEVA LÍNEA FILTRO
+                columnas_validas_inf = [
+                    'consecutivo', 'fecha', 'proyecto', 'ubicacion', 'estudio', 'comentario'
                 ]
                 datos_informes = datos_informes[columnas_validas_inf]
 
