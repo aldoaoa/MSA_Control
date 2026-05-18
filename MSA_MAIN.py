@@ -125,44 +125,47 @@ def logout():
 def modulo_informes():
     st.subheader("📝 Registrar Nuevo Informe MSA")
     
-    # Paso 1: Validar el ID del equipo fuera del formulario para consultar la BD
     id_equipo = st.text_input("ID del Equipo (Ej. BCS-QRO-LAB-MIC001):").strip()
     
     if id_equipo:
-        with st.spinner("Consultando vigencia actual del equipo..."):
-            res_eq = supabase.table('equipos_msa').select('descripcion, marca, modelo, vigencia_meses').eq('id_equipo', id_equipo).execute()
+        with st.spinner("Consultando datos actuales del equipo..."):
+            # AGREGAMOS 'link_servidor' a la consulta SELECT
+            res_eq = supabase.table('equipos_msa').select('descripcion, marca, modelo, vigencia_meses, link_servidor').eq('id_equipo', id_equipo).execute()
         
         if res_eq.data:
             equipo = res_eq.data[0]
-            # Obtenemos la vigencia dada de alta (si no existe, usamos 12 por defecto)
             vigencia_default = equipo.get('vigencia_meses') if equipo.get('vigencia_meses') else 12
+            # Obtenemos el link actual (si es nulo, dejamos texto vacío)
+            link_default = equipo.get('link_servidor') if equipo.get('link_servidor') else ""
             
             st.success(f"📦 Equipo confirmado: **{equipo['descripcion']}** ({equipo['marca']} {equipo['modelo']})")
             
-            # Paso 2: Desplegar el formulario de registro con la vigencia precargada
             with st.form("form_registro_informe", clear_on_submit=True):
                 col1, col2 = st.columns(2)
                 
                 with col1:
                     consecutivo = st.text_input("Consecutivo del Informe (Ej. BCS-EST-133-26) *")
                     fecha_informe = st.date_input("Fecha del Estudio *", value=datetime.date.today())
-                    estudio = st.text_input("Tipo de Estudio (Ej. GRRA, GRRV, LINEALIDAD)")
+                    studio = st.text_input("Tipo de Estudio (Ej. GRRA, GRRV, LINEALIDAD)")
                     
                 with col2:
                     proyecto = st.text_input("Proyecto")
                     ubicacion = st.text_input("Ubicación en Planta")
-                    
-                    # El valor por defecto es dinámico, extraído de la base de datos, pero totalmente modificable
                     vigencia_estudio = st.number_input(
                         "Vigencia para esta validación (Meses) *", 
                         min_value=1, 
                         value=int(vigencia_default), 
-                        step=1,
-                        help="Cambia este valor si la periodicidad del estudio para este equipo se ha modificado."
+                        step=1
                     )
-                    
-                    comentario = st.text_area("Comentarios / Observaciones")
-                    
+                
+                # Nuevo campo dentro del formulario de informes, precargado con el valor maestro
+                link_servidor_estudio = st.text_input(
+                    "🔗 Ruta de Carpeta Local para este Estudio", 
+                    value=str(link_default),
+                    help="Modifica esta ruta si los archivos de este nuevo informe se guardaron en otra carpeta del servidor."
+                )
+                
+                comentario = st.text_area("Comentarios / Observaciones")
                 st.markdown("*Campos obligatorios")
                 enviado = st.form_submit_button("💾 Guardar Informe y Actualizar Vencimiento", type="primary", use_container_width=True)
                 
@@ -171,7 +174,6 @@ def modulo_informes():
                         st.error("⚠️ El Consecutivo del Informe es obligatorio.")
                     else:
                         try:
-                            # Calcular la nueva fecha de vencimiento usando el valor del input (sea el de la BD o el modificado)
                             fecha_base = pd.to_datetime(fecha_informe)
                             fecha_vencimiento = fecha_base + pd.DateOffset(months=vigencia_estudio)
                             
@@ -184,17 +186,17 @@ def modulo_informes():
                                 "fecha": fecha_informe_str,
                                 "proyecto": proyecto.strip() if proyecto else None,
                                 "ubicacion": ubicacion.strip() if ubicacion else None,
-                                "estudio": estudio.strip() if estudio else None,
+                                "estudio": studio.strip() if studio else None,
                                 "comentario": comentario.strip() if comentario else id_equipo
                             }
                             supabase.table('informes_msa').insert(nuevo_informe).execute()
                             
-                            # 2. Actualizar el equipo (Modifica el estatus, amarra el nuevo informe, calcula vencimiento 
-                            # y actualiza la vigencia default por si fue modificada)
+                            # 2. Actualizar el equipo maestro (incluyendo la nueva ruta si cambió)
                             datos_actualizar_eq = {
                                 "informe_reciente": consecutivo.strip(),
                                 "fecha_vencimiento": fecha_vencimiento_str,
-                                "vigencia_meses": vigencia_estudio, # Se guarda el nuevo estándar si cambió
+                                "vigencia_meses": vigencia_estudio,
+                                "link_servidor": link_servidor_estudio.strip() if link_servidor_estudio else None, # <-- ACTUALIZA EL LINK MAESTRO
                                 "estatus": "VIGENTE"
                             }
                             supabase.table('equipos_msa').update(datos_actualizar_eq).eq('id_equipo', id_equipo).execute()
@@ -202,14 +204,15 @@ def modulo_informes():
                             st.success(f"✅ Informe **{consecutivo.strip()}** guardado correctamente.")
                             st.info(f"🔄 Equipo **{id_equipo}** actualizado a VIGENTE. Próximo vencimiento: **{fecha_vencimiento_str}**.")
                             
-                            # Si la vigencia cambió, avisar al usuario
                             if vigencia_estudio != vigencia_default:
-                                st.warning(f"⚙️ Nota: La vigencia por defecto del equipo ha sido actualizada de {vigencia_default} a {vigencia_estudio} meses para futuros estudios.")
+                                st.warning(f"⚙️ Nota: La vigencia por defecto del equipo ha sido actualizada a {vigencia_estudio} meses.")
+                                
+                            st.rerun()
                                 
                         except Exception as e:
                             st.error(f"❌ Ocurrió un error al procesar la actualización: {e}")
         else:
-            st.error(f"❌ El ID de equipo **{id_equipo}** no está registrado en el inventario. Verifícalo o dalos de alta primero.")
+            st.error(f"❌ El ID de equipo **{id_equipo}** no está registrado.")
 
 # --- MÓDULO REUTILIZABLE DE BÚSQUEDA ---
 def modulo_busqueda():
@@ -251,14 +254,12 @@ def vista_publica():
     modulo_busqueda()
 
 def modulo_altas_bajas():
-    # Usamos un radio button para cambiar entre Alta y Baja
     accion = st.radio("Selecciona la acción a realizar:", ["➕ Alta de Equipo", "🔻 Modificar Estatus / Baja"], horizontal=True)
     st.markdown("---")
     
     if accion == "➕ Alta de Equipo":
         st.subheader("Registrar Nuevo Equipo")
         
-        # El formulario agrupa los datos hasta que se presiona "Guardar"
         with st.form("form_alta_equipo", clear_on_submit=True):
             col1, col2 = st.columns(2)
             
@@ -276,6 +277,10 @@ def modulo_altas_bajas():
                 vigencia = st.number_input("Vigencia (Meses)", min_value=1, value=12, step=1)
                 estatus = st.selectbox("Estatus Inicial", ["VIGENTE", "POR VENCER", "VENCIDO", "EN PROCESO", "BAJA"])
             
+            # Campo ancho para rutas largas de red local
+            link_servidor = st.text_input("🔗 Ruta a la Carpeta Local en Servidor (Opcional)", 
+                                          help="Ejemplo: \\\\servidor_local\\compartido\\msa\\micrometro_002\\")
+            
             st.markdown("*Campos obligatorios")
             enviado = st.form_submit_button("💾 Guardar Equipo", type="primary", use_container_width=True)
             
@@ -283,7 +288,6 @@ def modulo_altas_bajas():
                 if not id_equipo or not descripcion:
                     st.error("⚠️ El ID y la Descripción son obligatorios para el alta.")
                 else:
-                    # Preparamos el diccionario para Supabase
                     nuevo_equipo = {
                         "id_equipo": id_equipo.strip(),
                         "descripcion": descripcion.strip(),
@@ -295,17 +299,17 @@ def modulo_altas_bajas():
                         "proyecto": proyecto.strip() if proyecto else None,
                         "vigencia_meses": vigencia,
                         "estatus": estatus,
-                        # Usamos la fecha del sistema para la creación
+                        "link_servidor": link_servidor.strip() if link_servidor else None, # <-- NUEVO CAMPO
                         "fecha_creacion": datetime.date.today().strftime('%Y-%m-%d')
                     }
                     try:
                         supabase.table("equipos_msa").insert(nuevo_equipo).execute()
                         st.success(f"✅ Equipo **{id_equipo}** registrado exitosamente en el inventario.")
                     except Exception as e:
-                        # Si el ID ya existe, Supabase lanzará un error de llave duplicada
                         st.error(f"❌ Error al guardar. Es posible que el ID ya exista. Detalle: {e}")
                         
     else:
+        # (La sección de Modificar Estatus / Baja se queda exactamente igual)
         st.subheader("Actualizar Estatus o Dar de Baja")
         id_busqueda = st.text_input("Ingresa el ID del equipo a modificar:")
         
@@ -313,7 +317,6 @@ def modulo_altas_bajas():
             if id_busqueda:
                 st.session_state['id_modificar'] = id_busqueda.strip()
         
-        # Si ya buscamos un equipo, mostramos sus datos y la opción de cambiar estatus
         if 'id_modificar' in st.session_state:
             id_mod = st.session_state['id_modificar']
             res = supabase.table('equipos_msa').select('descripcion, marca, modelo, estatus').eq('id_equipo', id_mod).execute()
@@ -321,8 +324,6 @@ def modulo_altas_bajas():
             if res.data:
                 equipo = res.data[0]
                 st.info(f"Modificando: **{equipo['descripcion']}** ({equipo['marca']} {equipo['modelo']})")
-                
-                # Buscamos el índice del estatus actual para que aparezca seleccionado
                 opciones_estatus = ["VIGENTE", "POR VENCER", "VENCIDO", "EN PROCESO", "BAJA"]
                 estatus_actual = equipo['estatus'] if equipo['estatus'] in opciones_estatus else "VIGENTE"
                 indice_actual = opciones_estatus.index(estatus_actual)
@@ -335,13 +336,13 @@ def modulo_altas_bajas():
                         try:
                             supabase.table('equipos_msa').update({'estatus': nuevo_estatus}).eq('id_equipo', id_mod).execute()
                             st.success(f"✅ Estatus de **{id_mod}** actualizado a **{nuevo_estatus}**.")
-                            del st.session_state['id_modificar'] # Limpiamos la memoria
-                            st.rerun() # Refrescamos para aplicar cambios visuales
+                            del st.session_state['id_modificar']
+                            st.rerun()
                         except Exception as e:
                             st.error(f"❌ Error al actualizar: {e}")
             else:
                 st.warning("⚠️ No se encontró ningún equipo con ese ID.")
-
+                
 def vista_admin():
     st.title("⚙️ Panel de Control Metrología")
     
