@@ -42,8 +42,16 @@ if st.button("🚀 Ejecutar Migración", type="primary"):
                 # ==========================================
                 st.info("Iniciando procesamiento de Equipos MSA...")
                 
-                # skiprows=3 ignora las 3 líneas de leyenda (Vigente, Baja, etc.)
-                df_equipos = pd.read_csv(archivo_equipos, skiprows=3)
+                # Buscador dinámico del encabezado
+                # Leemos todo en bruto primero para encontrar dónde está la tabla real
+                archivo_equipos.seek(0) # Reiniciamos el puntero del archivo
+                df_temp_eq = pd.read_csv(archivo_equipos, header=None)
+                # Buscamos la primera fila que contenga la palabra 'ID'
+                fila_header_eq = df_temp_eq[df_temp_eq.apply(lambda r: 'ID' in r.astype(str).str.strip().values, axis=1)].index[0]
+                
+                # Ahora leemos el CSV saltando exactamente hasta esa fila
+                archivo_equipos.seek(0)
+                df_equipos = pd.read_csv(archivo_equipos, skiprows=fila_header_eq)
                 df_equipos.columns = df_equipos.columns.str.strip()
                 df_equipos = df_equipos.dropna(subset=['ID'])
 
@@ -63,8 +71,6 @@ if st.button("🚀 Ejecutar Migración", type="primary"):
                     'ESTATUS': 'estatus'
                 })
 
-                # MAGIA: Filtramos la tabla para quedarnos SOLO con las columnas válidas,
-                # descartando cualquier "Unnamed: X" que Excel haya colado.
                 columnas_validas_eq = [
                     'id_equipo', 'ubicacion', 'descripcion', 'estudio', 'proyecto', 
                     'marca', 'modelo', 'serie', 'vigencia_meses', 'informe_reciente', 
@@ -83,8 +89,13 @@ if st.button("🚀 Ejecutar Migración", type="primary"):
                 # ==========================================
                 st.info("Iniciando procesamiento de Informes...")
                 
-                # skiprows=1 ignora la primera fila que dice "LISTADO DE MSA"
-                df_informes = pd.read_csv(archivo_informes, skiprows=1)
+                # Buscador dinámico del encabezado para informes
+                archivo_informes.seek(0)
+                df_temp_inf = pd.read_csv(archivo_informes, header=None)
+                fila_header_inf = df_temp_inf[df_temp_inf.apply(lambda r: 'CONSECUTIVO' in r.astype(str).str.strip().values, axis=1)].index[0]
+                
+                archivo_informes.seek(0)
+                df_informes = pd.read_csv(archivo_informes, skiprows=fila_header_inf)
                 df_informes.columns = df_informes.columns.str.strip()
                 df_informes = df_informes.dropna(subset=['CONSECUTIVO'])
 
@@ -106,7 +117,6 @@ if st.button("🚀 Ejecutar Migración", type="primary"):
                     'COMENTARIO': 'comentario'
                 })
 
-                # Filtramos columnas basura de los informes también
                 columnas_validas_inf = [
                     'consecutivo', 'fecha', 'proyecto', 'ubicacion', 'estudio', 'comentario'
                 ]
