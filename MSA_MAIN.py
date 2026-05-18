@@ -1,6 +1,9 @@
 import streamlit as st
 from supabase import create_client, Client
 import datetime
+import cv2
+import numpy as np
+from pyzbar.pyzbar import decode
 
 # Configuración de la página
 st.set_page_config(page_title="Control MSA - Metrología", page_icon="🔬", layout="wide")
@@ -18,19 +21,39 @@ def vista_publica():
     st.title("🔬 Consulta de Equipos MSA")
     st.markdown("---")
     
-    # Usamos un contenedor centrado para la búsqueda
-    col1, col2, col3 = st.columns([1, 2, 1])
+    # Dividimos en dos pestañas para que la interfaz móvil sea más limpia
+    tab_escaner, tab_manual = st.tabs(["📷 Escáner QR", "⌨️ Búsqueda Manual"])
     
-    with col2:
-        st.info("💡 **Tip:** Puedes escribir el ID o usar un escáner QR.")
-        # El text_input es perfecto para escáneres físicos tipo pistola
+    with tab_escaner:
+        st.info("Enfoca el código QR del equipo y toma la foto para consultar su estatus.")
+        imagen_camara = st.camera_input("Escáner QR")
+        
+        if imagen_camara is not None:
+            with st.spinner("Analizando código QR..."):
+                # 1. Convertir la imagen de Streamlit a un formato de OpenCV
+                bytes_data = imagen_camara.getvalue()
+                cv2_img = cv2.imdecode(np.frombuffer(bytes_data, np.uint8), cv2.IMREAD_COLOR)
+                
+                # 2. Decodificar usando pyzbar
+                codigos_qr = decode(cv2_img)
+                
+                if codigos_qr:
+                    # Extraer el texto del primer QR encontrado
+                    id_escaneado = codigos_qr[0].data.decode('utf-8').strip()
+                    st.success(f"✅ Código detectado: **{id_escaneado}**")
+                    
+                    # 3. Llamar a la función de consulta
+                    mostrar_resultado_equipo(id_escaneado)
+                else:
+                    st.error("❌ No se detectó ningún código QR. Intenta mejorar la iluminación o el enfoque.")
+
+    with tab_manual:
+        st.info("Ingresa el ID manualmente si la etiqueta está dañada.")
         id_busqueda = st.text_input("ID del equipo (Ej. BCS-QRO-LAB-MIC001):", key="buscador_publico")
         
         if st.button("🔍 Buscar Equipo", type="primary", use_container_width=True):
             if id_busqueda:
-                # Limpiamos espacios accidentales
-                id_limpio = id_busqueda.strip()
-                mostrar_resultado_equipo(id_limpio)
+                mostrar_resultado_equipo(id_busqueda.strip())
             else:
                 st.warning("⚠️ Por favor, ingresa un ID válido.")
 
