@@ -37,23 +37,36 @@ if st.button("🚀 Ejecutar Migración", type="primary"):
     else:
         with st.spinner("Procesando y enviando datos a Supabase..."):
             try:
-# ==========================================
+# Función global para traducir CUALQUIER fecha al formato de Supabase
+                def limpiar_fecha(fecha_str):
+                    if pd.isna(fecha_str) or str(fecha_str).strip() in ['', 'NaT', 'None']:
+                        return None
+                    try:
+                        # dateparser entiende "08 de Enero de 2026", "2025-09-03", etc.
+                        dt = dateparser.parse(str(fecha_str), languages=['es'])
+                        return dt.strftime('%Y-%m-%d') if dt else None
+                    except:
+                        return None
+
+                # ==========================================
                 # PROCESAMIENTO DE EQUIPOS
                 # ==========================================
                 st.info("Iniciando procesamiento de Equipos MSA...")
                 
-                # Buscador dinámico del encabezado
-                # Leemos todo en bruto primero para encontrar dónde está la tabla real
-                archivo_equipos.seek(0) # Reiniciamos el puntero del archivo
+                archivo_equipos.seek(0)
                 df_temp_eq = pd.read_csv(archivo_equipos, header=None)
-                # Buscamos la primera fila que contenga la palabra 'ID'
                 fila_header_eq = df_temp_eq[df_temp_eq.apply(lambda r: 'ID' in r.astype(str).str.strip().values, axis=1)].index[0]
                 
-                # Ahora leemos el CSV saltando exactamente hasta esa fila
                 archivo_equipos.seek(0)
                 df_equipos = pd.read_csv(archivo_equipos, skiprows=fila_header_eq)
                 df_equipos.columns = df_equipos.columns.str.strip()
                 df_equipos = df_equipos.dropna(subset=['ID'])
+
+                # Limpiamos las fechas de la tabla de equipos ANTES de renombrar
+                if 'FECHA DE CREACION' in df_equipos.columns:
+                    df_equipos['FECHA DE CREACION'] = df_equipos['FECHA DE CREACION'].apply(limpiar_fecha)
+                if 'FECHA DE VENC.' in df_equipos.columns:
+                    df_equipos['FECHA DE VENC.'] = df_equipos['FECHA DE VENC.'].apply(limpiar_fecha)
 
                 datos_equipos = df_equipos.rename(columns={
                     'ID': 'id_equipo',
@@ -89,7 +102,6 @@ if st.button("🚀 Ejecutar Migración", type="primary"):
                 # ==========================================
                 st.info("Iniciando procesamiento de Informes...")
                 
-                # Buscador dinámico del encabezado para informes
                 archivo_informes.seek(0)
                 df_temp_inf = pd.read_csv(archivo_informes, header=None)
                 fila_header_inf = df_temp_inf[df_temp_inf.apply(lambda r: 'CONSECUTIVO' in r.astype(str).str.strip().values, axis=1)].index[0]
@@ -99,14 +111,9 @@ if st.button("🚀 Ejecutar Migración", type="primary"):
                 df_informes.columns = df_informes.columns.str.strip()
                 df_informes = df_informes.dropna(subset=['CONSECUTIVO'])
 
-                def limpiar_fecha(fecha_str):
-                    try:
-                        dt = dateparser.parse(str(fecha_str), languages=['es'])
-                        return dt.strftime('%Y-%m-%d') if dt else None
-                    except:
-                        return None
-
-                df_informes['FECHA'] = df_informes['FECHA'].apply(limpiar_fecha)
+                # Limpiamos las fechas de la tabla de informes
+                if 'FECHA' in df_informes.columns:
+                    df_informes['FECHA'] = df_informes['FECHA'].apply(limpiar_fecha)
 
                 datos_informes = df_informes.rename(columns={
                     'CONSECUTIVO': 'consecutivo',
