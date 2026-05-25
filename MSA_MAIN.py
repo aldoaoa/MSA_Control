@@ -238,7 +238,7 @@ def modulo_altas_bajas_calibracion():
                 vigencia = st.number_input("Vigencia (Meses)", min_value=1, value=12)
                 informe_cal = st.text_input("Informe de Cal. Inicial")
                 fecha_cal = st.date_input("Fecha de Calibración Inicial")
-                estatus = st.selectbox("Estatus Inicial", ["VIGENTE", "POR VENCER", "VENCIDO", "EN PROCESO", "BAJA"], key="estatus_alta_cal")
+                estatus = st.selectbox("Estatus Inicial", ["VIGENTE", "POR VENCER", "VENCIDO", "EN PROCESO", "BAJA", "INACTIVO"], key="estatus_alta_cal")
 
             enviado = st.form_submit_button("💾 Guardar en Calibración", type="primary", use_container_width=True)
             
@@ -329,7 +329,10 @@ def mostrar_dashboard_calibracion():
         c1.metric("🔬 Total Instrumentos", len(df))
         c2.metric("🟢 Vigentes", len(df[df['estatus'] == 'VIGENTE']))
         c3.metric("🟡 Por Vencer", len(df[df['estatus'] == 'POR VENCER']))
-        c4.metric("🔴 Vencidos/Bajas", len(df[df['estatus'].isin(['VENCIDO', 'BAJA'])]))
+        
+        # --- AQUÍ ESTÁ EL CAMBIO ---
+        # Usamos .isin() para incluir múltiples estatus en el mismo contador
+        c4.metric("🔴 Vencidos/Inactivos", len(df[df['estatus'].isin(['VENCIDO', 'BAJA', 'INACTIVO'])]))
         
         st.markdown("---")
         df_visual = df.rename(columns={'nuevo_id': 'Nuevo ID', 'descripcion': 'Descripción', 'ubicacion': 'Ubicación', 'proveedor': 'Proveedor', 'fecha_venc': 'Vencimiento', 'estatus': 'Estatus'})
