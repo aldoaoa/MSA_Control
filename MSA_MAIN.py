@@ -166,7 +166,7 @@ def modulo_altas_bajas_msa():
                         "vigencia_meses": vigencia,
                         "estatus": estatus,
                         "link_servidor": link_servidor.strip() if link_servidor else None,
-                        "fecha_creacion": datetime.date.today().strftime('%Y-%m-%d')
+                        "fecha_creacion": datetime.date.today().strftime('%Y-%m-%d'),
                         "creado_por": st.session_state.user['email']  # <-- AGREGAR ESTO
                     }
                     try:
