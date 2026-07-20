@@ -5,7 +5,7 @@ import cv2
 import numpy as np
 from pyzbar.pyzbar import decode
 import pandas as pd
-from werkzeug.security import check_password_hash
+from werkzeug.security import check_password_hash, generate_password_hash
 
 # --- GESTIÓN DE SESIÓN (LOGIN CON WORKZEUG) ---
 if "user" not in st.session_state:
@@ -122,8 +122,92 @@ def modulo_busqueda_msa():
                 st.warning("⚠️ Por favor, ingresa un ID válido.")
 
 def modulo_altas_bajas_msa():
-    st.info("Módulo original de altas y bajas de MSA... (Código omitido para brevedad visual, aquí va exactamente tu función actual modulo_altas_bajas)")
-    # NOTA: Inserta aquí el contenido exacto de tu función modulo_altas_bajas original
+    accion = st.radio("Selecciona la acción a realizar:", ["➕ Alta de Equipo", "🔻 Modificar Estatus / Baja"], horizontal=True, key="radio_acc_msa")
+    st.markdown("---")
+    
+    if accion == "➕ Alta de Equipo":
+        st.subheader("Registrar Nuevo Equipo MSA")
+        
+        with st.form("form_alta_equipo_msa", clear_on_submit=True):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                id_equipo = st.text_input("ID del Equipo (Ej. BCS-QRO-LAB-MIC002) *")
+                descripcion = st.text_input("Descripción (Ej. MICROMETRO) *")
+                marca = st.text_input("Marca")
+                modelo = st.text_input("Modelo")
+                serie = st.text_input("Número de Serie")
+                
+            with col2:
+                ubicacion = st.text_input("Ubicación (Ej. 1. LABORATORIO)")
+                estudio = st.text_input("Estudio Requerido (Ej. GRRV)")
+                proyecto = st.text_input("Proyecto")
+                vigencia = st.number_input("Vigencia (Meses)", min_value=1, value=12, step=1)
+                estatus = st.selectbox("Estatus Inicial", ["VIGENTE", "POR VENCER", "VENCIDO", "EN PROCESO", "BAJA", "INACTIVO"], key="estatus_alta_msa")
+            
+            link_servidor = st.text_input("🔗 Ruta a la Carpeta Local en Servidor (Opcional)")
+            
+            st.markdown("*Campos obligatorios")
+            enviado = st.form_submit_button("💾 Guardar Equipo", type="primary", use_container_width=True)
+            
+            if enviado:
+                if not id_equipo or not descripcion:
+                    st.error("⚠️ El ID y la Descripción son obligatorios para el alta.")
+                else:
+                    nuevo_equipo = {
+                        "id_equipo": id_equipo.strip(),
+                        "descripcion": descripcion.strip(),
+                        "marca": marca.strip() if marca else None,
+                        "modelo": modelo.strip() if modelo else None,
+                        "serie": serie.strip() if serie else None,
+                        "ubicacion": ubicacion.strip() if ubicacion else None,
+                        "estudio": estudio.strip() if estudio else None,
+                        "proyecto": proyecto.strip() if proyecto else None,
+                        "vigencia_meses": vigencia,
+                        "estatus": estatus,
+                        "link_servidor": link_servidor.strip() if link_servidor else None,
+                        "fecha_creacion": datetime.date.today().strftime('%Y-%m-%d')
+                        "creado_por": st.session_state.user['email']  # <-- AGREGAR ESTO
+                    }
+                    try:
+                        supabase.table("equipos_msa").insert(nuevo_equipo).execute()
+                        st.success(f"✅ Equipo **{id_equipo}** registrado exitosamente en el inventario MSA.")
+                    except Exception as e:
+                        st.error(f"❌ Error al guardar. Es posible que el ID ya exista. Detalle: {e}")
+                    
+    else:
+        st.subheader("Actualizar Estatus o Dar de Baja (MSA)")
+        id_busqueda = st.text_input("Ingresa el ID del equipo a modificar:", key="input_mod_msa")
+        
+        if st.button("Buscar Equipo", key="btn_busq_mod_msa"):
+            if id_busqueda:
+                st.session_state['id_modificar_msa'] = id_busqueda.strip()
+        
+        if 'id_modificar_msa' in st.session_state:
+            id_mod = st.session_state['id_modificar_msa']
+            res = supabase.table('equipos_msa').select('descripcion, marca, modelo, estatus').eq('id_equipo', id_mod).execute()
+            
+            if res.data:
+                equipo = res.data[0]
+                st.info(f"Modificando: **{equipo['descripcion']}** ({equipo['marca']} {equipo['modelo']})")
+                opciones_estatus = ["VIGENTE", "POR VENCER", "VENCIDO", "EN PROCESO", "BAJA", "INACTIVO"]
+                estatus_actual = equipo['estatus'] if equipo['estatus'] in opciones_estatus else "VIGENTE"
+                indice_actual = opciones_estatus.index(estatus_actual)
+                
+                with st.form("form_modificar_estatus_msa"):
+                    nuevo_estatus = st.selectbox("Actualizar Estatus", opciones_estatus, index=indice_actual)
+                    btn_actualizar = st.form_submit_button("Actualizar Estatus", type="primary")
+                    
+                    if btn_actualizar:
+                        try:
+                            supabase.table('equipos_msa').update({'estatus': nuevo_estatus}).eq('id_equipo', id_mod).execute()
+                            st.success(f"✅ Estatus de **{id_mod}** actualizado a **{nuevo_estatus}**.")
+                            del st.session_state['id_modificar_msa']
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ Error al actualizar: {e}")
+            else:
+                st.warning("⚠️ No se encontró ningún equipo con ese ID.")
 
 def modulo_informes_msa():
     st.info("Módulo original de informes de MSA... (Código omitido para brevedad visual, aquí va exactamente tu función actual modulo_informes)")
@@ -281,21 +365,33 @@ def modulo_altas_bajas_calibracion():
                         st.error(f"❌ Error: {e}")
     else:
         st.subheader("Actualizar Estatus (Calibración)")
-        id_mod = st.text_input("Nuevo ID del equipo a modificar:")
-        if st.button("Buscar para Modificar"):
-            st.session_state['id_mod_cal'] = id_mod.strip()
+        id_mod = st.text_input("Nuevo ID del equipo a modificar:", key="input_mod_cal")
+        
+        if st.button("Buscar para Modificar", key="btn_busq_mod_cal"):
+            if id_mod:
+                st.session_state['id_mod_cal'] = id_mod.strip()
             
         if 'id_mod_cal' in st.session_state:
             res = supabase.table('calendario_calibracion').select('descripcion, estatus').eq('nuevo_id', st.session_state['id_mod_cal']).execute()
             if res.data:
                 eq = res.data[0]
+                opciones_estatus_cal = ["VIGENTE", "POR VENCER", "VENCIDO", "EN PROCESO", "BAJA", "INACTIVO"]
+                estatus_actual_cal = eq['estatus'] if eq['estatus'] in opciones_estatus_cal else "VIGENTE"
+                indice_actual_cal = opciones_estatus_cal.index(estatus_actual_cal)
+                
                 with st.form("form_mod_cal"):
-                    nuevo_est = st.selectbox("Estatus", ["VIGENTE", "POR VENCER", "VENCIDO", "EN PROCESO", "BAJA"], index=["VIGENTE", "POR VENCER", "VENCIDO", "EN PROCESO", "BAJA"].index(eq['estatus']))
-                    if st.form_submit_button("Actualizar"):
-                        supabase.table('calendario_calibracion').update({'estatus': nuevo_est}).eq('nuevo_id', st.session_state['id_mod_cal']).execute()
-                        st.success("✅ Estatus actualizado.")
-                        del st.session_state['id_mod_cal']
-                        st.rerun()
+                    nuevo_est = st.selectbox("Estatus", opciones_estatus_cal, index=indice_actual_cal, key="estatus_upd_cal")
+                    
+                    if st.form_submit_button("Actualizar Estatus", type="primary"):
+                        try:
+                            supabase.table('calendario_calibracion').update({'estatus': nuevo_est}).eq('nuevo_id', st.session_state['id_mod_cal']).execute()
+                            st.success("✅ Estatus actualizado correctamente.")
+                            del st.session_state['id_mod_cal']
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ Error al actualizar: {e}")
+            else:
+                st.warning("⚠️ No se encontró ningún equipo con ese ID.")
 
 def modulo_informes_calibracion():
     st.subheader("📝 Registrar Nueva Calibración")
@@ -354,6 +450,95 @@ def mostrar_dashboard_calibracion():
         df_visual = df.rename(columns={'nuevo_id': 'Nuevo ID', 'descripcion': 'Descripción', 'ubicacion': 'Ubicación', 'proveedor': 'Proveedor', 'fecha_venc': 'Vencimiento', 'estatus': 'Estatus'})
         st.dataframe(df_visual, use_container_width=True, hide_index=True)
 
+def modulo_ajustes_usuarios():
+    st.title("⚙️ Ajustes de Sistema - Gestión de Usuarios")
+    st.markdown("---")
+    
+    # Bloqueo de seguridad
+    if st.session_state.user.get('rol') != 'admin':
+        st.error("🚫 Acceso denegado. Solo los administradores pueden ver esta sección.")
+        return
+
+    tab_lista, tab_alta, tab_edicion = st.tabs(["👥 Lista de Usuarios", "➕ Nuevo Usuario", "🔻 Editar / Eliminar"])
+    
+    with tab_lista:
+        res = supabase.table('usuarios_metrologia').select('email, nombre, rol, fecha_creacion').execute()
+        if res.data:
+            df_usuarios = pd.DataFrame(res.data)
+            st.dataframe(df_usuarios, use_container_width=True, hide_index=True)
+    
+    with tab_alta:
+        with st.form("form_alta_usuario", clear_on_submit=True):
+            st.subheader("Registrar Nuevo Usuario")
+            c1, c2 = st.columns(2)
+            with c1:
+                nuevo_email = st.text_input("Correo Electrónico *")
+                nuevo_nombre = st.text_input("Nombre Completo *")
+            with c2:
+                nueva_pass = st.text_input("Contraseña *", type="password")
+                nuevo_rol = st.selectbox("Rol", ["admin", "usuario"])
+            
+            enviado_usr = st.form_submit_button("💾 Crear Usuario", type="primary", use_container_width=True)
+            
+            if enviado_usr:
+                if not nuevo_email or not nueva_pass or not nuevo_nombre:
+                    st.error("⚠️ Todos los campos son obligatorios.")
+                else:
+                    hash_pw = generate_password_hash(nueva_pass)
+                    try:
+                        supabase.table('usuarios_metrologia').insert({
+                            'email': nuevo_email.strip().lower(),
+                            'nombre': nuevo_nombre.strip(),
+                            'password_hash': hash_pw,
+                            'rol': nuevo_rol
+                        }).execute()
+                        st.success(f"✅ Usuario {nuevo_email} creado exitosamente.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Error al crear usuario (¿El correo ya existe?): {e}")
+
+    with tab_edicion:
+        st.subheader("Modificar Rol o Eliminar Usuario")
+        email_mod = st.text_input("Ingresa el correo del usuario a modificar:", key="input_mod_usr").strip().lower()
+        
+        if st.button("Buscar Usuario"):
+            st.session_state['usr_mod'] = email_mod
+            
+        if 'usr_mod' in st.session_state and st.session_state['usr_mod']:
+            usr_target = st.session_state['usr_mod']
+            res_usr = supabase.table('usuarios_metrologia').select('email, nombre, rol').eq('email', usr_target).execute()
+            
+            if res_usr.data:
+                usr_data = res_usr.data[0]
+                st.info(f"Modificando a: **{usr_data['nombre']}** ({usr_data['email']})")
+                
+                with st.form("form_edicion_usr"):
+                    roles = ["admin", "usuario"]
+                    rol_actual = usr_data['rol'] if usr_data['rol'] in roles else "usuario"
+                    act_rol = st.selectbox("Rol", roles, index=roles.index(rol_actual))
+                    
+                    c_btn1, c_btn2 = st.columns(2)
+                    with c_btn1:
+                        btn_act = st.form_submit_button("Actualizar Rol", type="primary", use_container_width=True)
+                    with c_btn2:
+                        btn_del = st.form_submit_button("🗑️ Eliminar Usuario", use_container_width=True)
+                    
+                    if btn_act:
+                        supabase.table('usuarios_metrologia').update({'rol': act_rol}).eq('email', usr_target).execute()
+                        st.success("✅ Rol actualizado.")
+                        del st.session_state['usr_mod']
+                        st.rerun()
+                        
+                    if btn_del:
+                        if usr_target == st.session_state.user['email']:
+                            st.error("⚠️ No puedes eliminar tu propio usuario mientras tienes la sesión activa.")
+                        else:
+                            supabase.table('usuarios_metrologia').delete().eq('email', usr_target).execute()
+                            st.success("✅ Usuario eliminado.")
+                            del st.session_state['usr_mod']
+                            st.rerun()
+            else:
+                st.warning("⚠️ Usuario no encontrado.")
 
 # ==========================================
 #              ENRUTADOR PRINCIPAL
