@@ -5,3 +5,4 @@ supabase
 dateparser
 opencv-python-headless
 pyzbar
+werkzeug
