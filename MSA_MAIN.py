@@ -545,8 +545,15 @@ def modulo_ajustes_usuarios():
 # ==========================================
 with st.sidebar:
     st.title("⚙️ Navegación")
-    # SELECTOR PRINCIPAL DE MÓDULO
-    modulo_activo = st.radio("Selecciona un Módulo:", ["Control MSA", "Calendario de Calibración"])
+    
+    # Definir opciones base
+    opciones_modulo = ["Control MSA", "Calendario de Calibración"]
+    
+    # Agregar 'Ajustes' solo si es admin
+    if st.session_state.user and st.session_state.user.get('rol') == 'admin':
+        opciones_modulo.append("Ajustes de Sistema")
+        
+    modulo_activo = st.radio("Selecciona un Módulo:", opciones_modulo)
     st.markdown("---")
     
     if st.session_state.user is None:
@@ -556,11 +563,11 @@ with st.sidebar:
         if st.button("Iniciar Sesión", use_container_width=True):
             login(email, password)
     else:
-        st.success("Sesión Activa")
+        st.success(f"Sesión Activa: {st.session_state.user['nombre']}")
         if st.button("Cerrar Sesión", use_container_width=True):
             logout()
 
-# RENDERIZADO DE VISTAS SEGÚN MÓDULO Y SESIÓN
+# RENDERIZADO DE VISTAS (AL FINAL DEL SCRIPT)
 if st.session_state.user is None:
     st.title(f"🔬 Consulta - {modulo_activo}")
     st.markdown("---")
@@ -569,18 +576,21 @@ if st.session_state.user is None:
     else:
         modulo_busqueda_calibracion()
 else:
-    st.title(f"⚙️ Panel de Control - {modulo_activo}")
-    tab_dash, tab_consulta, tab_altas, tab_informe = st.tabs([
-        "📊 Dashboard", "🔍 Consulta y Escáner", "➕ Altas/Bajas", "📝 Registrar Informe"
-    ])
-    
-    if modulo_activo == "Control MSA":
-        with tab_dash: mostrar_dashboard_msa()
-        with tab_consulta: modulo_busqueda_msa()
-        with tab_altas: modulo_altas_bajas_msa()
-        with tab_informe: modulo_informes_msa()
+    if modulo_activo == "Ajustes de Sistema":
+        modulo_ajustes_usuarios()
     else:
-        with tab_dash: mostrar_dashboard_calibracion()
-        with tab_consulta: modulo_busqueda_calibracion()
-        with tab_altas: modulo_altas_bajas_calibracion()
-        with tab_informe: modulo_informes_calibracion()
+        st.title(f"⚙️ Panel de Control - {modulo_activo}")
+        tab_dash, tab_consulta, tab_altas, tab_informe = st.tabs([
+            "📊 Dashboard", "🔍 Consulta y Escáner", "➕ Altas/Bajas", "📝 Registrar Informe"
+        ])
+        
+        if modulo_activo == "Control MSA":
+            with tab_dash: mostrar_dashboard_msa()
+            with tab_consulta: modulo_busqueda_msa()
+            with tab_altas: modulo_altas_bajas_msa()
+            with tab_informe: modulo_informes_msa()
+        elif modulo_activo == "Calendario de Calibración":
+            with tab_dash: mostrar_dashboard_calibracion()
+            with tab_consulta: modulo_busqueda_calibracion()
+            with tab_altas: modulo_altas_bajas_calibracion()
+            with tab_informe: modulo_informes_calibracion()
