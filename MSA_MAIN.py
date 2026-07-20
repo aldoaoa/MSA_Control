@@ -97,25 +97,48 @@ def mostrar_resultado_equipo(id_equipo):
     else:
         st.error(f"❌ No se encontró ningún equipo registrado con el ID: **{id_equipo}**")
 
+def parse_fecha(val):
+    if pd.isna(val) or val is None:
+        return None
+    val_str = str(val).strip()
+    if val_str in ['', '-', 'S/D', 'N/A', 'nan', 'NaT', 'None']:
+        return None
+    try:
+        parsed = pd.to_datetime(val, errors='coerce')
+        if pd.isna(parsed):
+            return None
+        return parsed.strftime('%Y-%m-%d')
+    except Exception:
+        return None
+
+def parse_int(val, default=12):
+    if pd.isna(val) or val is None:
+        return default
+    try:
+        val_str = str(val).strip()
+        if val_str in ['', '-', 'S/D', 'N/A']:
+            return default
+        return int(float(val_str))
+    except (ValueError, TypeError):
+        return default
+
 def modulo_sincronizacion_excel():
     st.subheader("📥 Sincronización Masiva desde Excel")
-    st.info("Sube el archivo maestro (ej. B_055_4_002_QRO_SP...) para cargar o actualizar equipos en el Calendario de Calibración.")
+    st.info("Sube el archivo maestro para cargar o actualizar equipos en el Calendario de Calibración.")
     
     archivo_excel = st.file_uploader("Selecciona el archivo Excel (.xlsx)", type=["xlsx"])
     
     if archivo_excel is not None:
         try:
             with st.spinner("Procesando archivo Excel..."):
-                # Leemos específicamente la hoja 'CALIBRACIONES', saltando las primeras 3 filas de encabezados visuales
                 df = pd.read_excel(archivo_excel, sheet_name='CALIBRACIONES', header=3)
-                
-                # Filtramos para asegurarnos de que la fila tenga al menos un "NUEVO ID"
-                # Limpiamos los nombres de las columnas eliminando espacios extra al principio/final
                 df.columns = df.columns.str.strip()
                 df = df.dropna(subset=['NUEVO ID'])
                 
-                # Preparamos una vista previa para el usuario
-                st.write(f"📊 Se detectaron {len(df)} registros válidos para procesar.")
+                # Filtrar filas donde 'NUEVO ID' sea un guion o vacío
+                df = df[~df['NUEVO ID'].astype(str).str.strip().isin(['-', '', 'S/D', 'N/A'])]
+                
+                st.write(f"📊 Se detectaron **{len(df)}** registros válidos para procesar.")
                 st.dataframe(df[['NUEVO ID', 'DESCRIPCION', 'MARCA', 'FECHA DE VENC.']].head(5))
                 
                 if st.button("🚀 Iniciar Sincronización a Base de Datos", type="primary"):
@@ -125,64 +148,56 @@ def modulo_sincronizacion_excel():
                     exitos = 0
                     errores = 0
                     
-                    for i, row in df.iterrows():
-                        # Actualizar barra de progreso
+                    for i, (_, row) in enumerate(df.iterrows()):
                         progreso_actual = (i + 1) / len(df)
                         barra_progreso.progress(progreso_actual)
                         texto_progreso.text(f"Procesando: {row['NUEVO ID']} ({i+1}/{len(df)})")
                         
                         try:
-                            # Parsear fechas asegurando formato de BD
-                            fecha_cal_str = pd.to_datetime(row['FECHA DE CAL.']).strftime('%Y-%m-%d') if pd.notnull(row['FECHA DE CAL.']) else None
-                            fecha_venc_str = pd.to_datetime(row['FECHA DE VENC.']).strftime('%Y-%m-%d') if pd.notnull(row['FECHA DE VENC.']) else None
+                            fecha_cal_str = parse_fecha(row.get('FECHA DE CAL.'))
+                            fecha_venc_str = parse_fecha(row.get('FECHA DE VENC.'))
+                            vigencia_val = parse_int(row.get('VIGENCIA'), default=12)
                             
                             nuevo_registro = {
                                 "nuevo_id": str(row['NUEVO ID']).strip(),
-                                "id_obsoleto": str(row['ID OBSOLETO']).strip() if pd.notnull(row['ID OBSOLETO']) else None,
-                                "descripcion": str(row['DESCRIPCION']).strip() if pd.notnull(row['DESCRIPCION']) else 'S/D',
-                                "marca": str(row['MARCA']).strip() if pd.notnull(row['MARCA']) else None,
-                                "modelo": str(row['MODELO']).strip() if pd.notnull(row['MODELO']) else None,
-                                "serie": str(row['SERIE']).strip() if pd.notnull(row['SERIE']) else None,
-                                "ubicacion": str(row['UBICACIÓN']).strip() if pd.notnull(row['UBICACIÓN']) else None,
-                                "operacion": str(row['OPERACIÓN']).strip() if pd.notnull(row['OPERACIÓN']) else None,
-                                "alcance_operacion": str(row['ALCANCE DE OPERACIÓN']).strip() if pd.notnull(row['ALCANCE DE OPERACIÓN']) else None,
-                                "control": str(row['CONTROL']).strip() if pd.notnull(row['CONTROL']) else None,
-                                "responsable": str(row['RESPONSABLE']).strip() if pd.notnull(row['RESPONSABLE']) else None,
-                                "proveedor": str(row['PROVEEDOR']).strip() if pd.notnull(row['PROVEEDOR']) else None,
-                                # Manejo seguro de la vigencia (por si viene como texto, 'N/A' o vacío)
-                                "vigencia": int(row['VIGENCIA']) if pd.notnull(row['VIGENCIA']) and str(row['VIGENCIA']).replace('.','',1).isdigit() else 12,
-                                "informe_cal": str(row['INFORME DE CAL.']).strip() if pd.notnull(row['INFORME DE CAL.']) else None,
+                                "id_obsoleto": str(row['ID OBSOLETO']).strip() if pd.notnull(row.get('ID OBSOLETO')) and str(row.get('ID OBSOLETO')).strip() not in ['-', ''] else None,
+                                "descripcion": str(row['DESCRIPCION']).strip() if pd.notnull(row.get('DESCRIPCION')) and str(row.get('DESCRIPCION')).strip() not in ['-', ''] else 'S/D',
+                                "marca": str(row['MARCA']).strip() if pd.notnull(row.get('MARCA')) and str(row.get('MARCA')).strip() not in ['-', ''] else None,
+                                "modelo": str(row['MODELO']).strip() if pd.notnull(row.get('MODELO')) and str(row.get('MODELO')).strip() not in ['-', ''] else None,
+                                "serie": str(row['SERIE']).strip() if pd.notnull(row.get('SERIE')) and str(row.get('SERIE')).strip() not in ['-', ''] else None,
+                                "ubicacion": str(row['UBICACIÓN']).strip() if pd.notnull(row.get('UBICACIÓN')) and str(row.get('UBICACIÓN')).strip() not in ['-', ''] else None,
+                                "operacion": str(row['OPERACIÓN']).strip() if pd.notnull(row.get('OPERACIÓN')) and str(row.get('OPERACIÓN')).strip() not in ['-', ''] else None,
+                                "alcance_operacion": str(row['ALCANCE DE OPERACIÓN']).strip() if pd.notnull(row.get('ALCANCE DE OPERACIÓN')) and str(row.get('ALCANCE DE OPERACIÓN')).strip() not in ['-', ''] else None,
+                                "control": str(row['CONTROL']).strip() if pd.notnull(row.get('CONTROL')) and str(row.get('CONTROL')).strip() not in ['-', ''] else None,
+                                "responsable": str(row['RESPONSABLE']).strip() if pd.notnull(row.get('RESPONSABLE')) and str(row.get('RESPONSABLE')).strip() not in ['-', ''] else None,
+                                "proveedor": str(row['PROVEEDOR']).strip() if pd.notnull(row.get('PROVEEDOR')) and str(row.get('PROVEEDOR')).strip() not in ['-', ''] else None,
+                                "vigencia": vigencia_val,
+                                "informe_cal": str(row['INFORME DE CAL.']).strip() if pd.notnull(row.get('INFORME DE CAL.')) and str(row.get('INFORME DE CAL.')).strip() not in ['-', ''] else None,
                                 "fecha_cal": fecha_cal_str,
                                 "fecha_venc": fecha_venc_str,
-                                "estatus": str(row['ESTATUS']).strip().upper() if pd.notnull(row['ESTATUS']) else 'VIGENTE',
+                                "estatus": str(row['ESTATUS']).strip().upper() if pd.notnull(row.get('ESTATUS')) and str(row.get('ESTATUS')).strip() not in ['-', ''] else 'VIGENTE',
                                 "creado_por": st.session_state.user['email']
                             }
                             
-                            # Intentamos insertar. El 'upsert=True' actualizará el registro si el 'nuevo_id' ya existe.
-                            # NOTA: Supabase python cliente a veces no soporta upsert nativo directamente en un comando, 
-                            # si falla, hacemos try (insert) except (update)
-                            
-                            # Estrategia de Inserción / Actualización segura
                             res_busqueda = supabase.table('calendario_calibracion').select('nuevo_id').eq('nuevo_id', nuevo_registro['nuevo_id']).execute()
                             
                             if res_busqueda.data:
-                                # Ya existe, hacemos Update
                                 nuevo_registro['modificado_por'] = st.session_state.user['email']
-                                del nuevo_registro['creado_por'] # No sobreescribir quién lo creó originalmente
+                                del nuevo_registro['creado_por']
                                 supabase.table('calendario_calibracion').update(nuevo_registro).eq('nuevo_id', nuevo_registro['nuevo_id']).execute()
                             else:
-                                # No existe, hacemos Insert
                                 supabase.table('calendario_calibracion').insert(nuevo_registro).execute()
                                 
                             exitos += 1
                         except Exception as e:
-                            st.warning(f"Error procesando {row.get('NUEVO ID', 'Fila desconocida')}: {e}")
+                            st.warning(f"Error procesando {row.get('NUEVO ID', 'Fila sin ID')}: {e}")
                             errores += 1
                             
-                    st.success(f"✅ Sincronización completada. Éxitos: {exitos} | Errores: {errores}")
+                    st.success(f"✅ Sincronización completada. Procesados con éxito: {exitos} | Errores: {errores}")
                     
         except Exception as e:
-            st.error(f"❌ Error al leer el archivo Excel. Asegúrate de que tenga el formato correcto. Detalle: {e}")
+            st.error(f"❌ Error al leer el archivo Excel. Detalle: {e}")
+            
 def modulo_busqueda_msa():
     tab_escaner, tab_manual = st.tabs(["📷 Escáner QR", "⌨️ Búsqueda Manual"])
     with tab_escaner:
