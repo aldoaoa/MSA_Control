@@ -6,3 +6,4 @@ dateparser
 opencv-python-headless
 pyzbar
 werkzeug
+openpyxl
