@@ -5,6 +5,39 @@ import cv2
 import numpy as np
 from pyzbar.pyzbar import decode
 import pandas as pd
+from werkzeug.security import check_password_hash
+
+# --- GESTIÓN DE SESIÓN (LOGIN CON WORKZEUG) ---
+if "user" not in st.session_state:
+    st.session_state.user = None
+
+def login(email, password):
+    try:
+        # Consultamos la tabla personalizada de usuarios en Supabase
+        response = supabase.table('usuarios_metrologia').select("*").eq('email', email.strip().lower()).execute()
+        
+        if response.data:
+            usuario = response.data[0]
+            # Validamos la contraseña ingresada contra el hash cifrado de Werkzeug
+            if check_password_hash(usuario['password_hash'], password):
+                st.session_state.user = {
+                    "email": usuario['email'],
+                    "nombre": usuario.get('nombre', 'Administrador'),
+                    "rol": usuario.get('rol', 'admin')
+                }
+                st.rerun()
+            else:
+                st.error("❌ Contraseña incorrecta.")
+        else:
+            st.error("❌ El correo no está registrado en el sistema.")
+            
+    except Exception as e:
+        st.error(f"Detalle del error: {e}")
+
+def logout():
+    # Limpiamos la sesión localmente
+    st.session_state.user = None
+    st.rerun()
 
 # Configuración de la página
 st.set_page_config(page_title="Gestión de Metrología", page_icon="🔬", layout="wide")
@@ -17,23 +50,6 @@ def init_connection():
     return create_client(url, key)
 
 supabase = init_connection()
-
-# --- GESTIÓN DE SESIÓN (LOGIN) ---
-if "user" not in st.session_state:
-    st.session_state.user = None
-
-def login(email, password):
-    try:
-        response = supabase.auth.sign_in_with_password({"email": email, "password": password})
-        st.session_state.user = response.user
-        st.rerun()
-    except Exception as e:
-        st.error(f"Detalle del error: {e}")
-
-def logout():
-    supabase.auth.sign_out()
-    st.session_state.user = None
-    st.rerun()
 
 # ==========================================
 #        MÓDULO MSA (CÓDIGO ORIGINAL)
