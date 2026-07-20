@@ -210,8 +210,95 @@ def modulo_altas_bajas_msa():
                 st.warning("⚠️ No se encontró ningún equipo con ese ID.")
 
 def modulo_informes_msa():
-    st.info("Módulo original de informes de MSA... (Código omitido para brevedad visual, aquí va exactamente tu función actual modulo_informes)")
-    # NOTA: Inserta aquí el contenido exacto de tu función modulo_informes original
+    st.subheader("📝 Registrar Nuevo Informe MSA")
+    
+    id_equipo = st.text_input("ID del Equipo (Ej. BCS-QRO-LAB-MIC001):").strip()
+    
+    if id_equipo:
+        with st.spinner("Consultando datos actuales del equipo..."):
+            res_eq = supabase.table('equipos_msa').select('descripcion, marca, modelo, vigencia_meses, link_servidor').eq('id_equipo', id_equipo).execute()
+        
+        if res_eq.data:
+            equipo = res_eq.data[0]
+            vigencia_default = equipo.get('vigencia_meses') if equipo.get('vigencia_meses') else 12
+            link_default = equipo.get('link_servidor') if equipo.get('link_servidor') else ""
+            
+            st.success(f"📦 Equipo confirmado: **{equipo['descripcion']}** ({equipo['marca']} {equipo['modelo']})")
+            
+            with st.form("form_registro_informe_msa", clear_on_submit=True):
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    consecutivo = st.text_input("Consecutivo del Informe (Ej. BCS-EST-133-26) *")
+                    fecha_informe = st.date_input("Fecha del Estudio *", value=datetime.date.today())
+                    studio = st.text_input("Tipo de Estudio (Ej. GRRA, GRRV, LINEALIDAD)")
+                    
+                with col2:
+                    proyecto = st.text_input("Proyecto")
+                    ubicacion = st.text_input("Ubicación en Planta")
+                    vigencia_estudio = st.number_input(
+                        "Vigencia para esta validación (Meses) *", 
+                        min_value=1, 
+                        value=int(vigencia_default), 
+                        step=1
+                    )
+                
+                link_servidor_estudio = st.text_input(
+                    "🔗 Ruta de Carpeta Local para este Estudio", 
+                    value=str(link_default),
+                    help="Modifica esta ruta si los archivos de este nuevo informe se guardaron en otra carpeta del servidor."
+                )
+                
+                comentario = st.text_area("Comentarios / Observaciones")
+                st.markdown("*Campos obligatorios")
+                enviado = st.form_submit_button("💾 Guardar Informe y Actualizar Vencimiento", type="primary", use_container_width=True)
+                
+                if enviado:
+                    if not consecutivo:
+                        st.error("⚠️ El Consecutivo del Informe es obligatorio.")
+                    else:
+                        try:
+                            fecha_base = pd.to_datetime(fecha_informe)
+                            fecha_vencimiento = fecha_base + pd.DateOffset(months=vigencia_estudio)
+                            
+                            fecha_vencimiento_str = fecha_vencimiento.strftime('%Y-%m-%d')
+                            fecha_informe_str = fecha_base.strftime('%Y-%m-%d')
+                            
+                            # 1. Registrar el informe en la tabla 'informes_msa'
+                            nuevo_informe = {
+                                "consecutivo": consecutivo.strip(),
+                                "fecha": fecha_informe_str,
+                                "proyecto": proyecto.strip() if proyecto else None,
+                                "ubicacion": ubicacion.strip() if ubicacion else None,
+                                "estudio": studio.strip() if studio else None,
+                                "comentario": comentario.strip() if comentario else id_equipo,
+                                "creado_por": st.session_state.user['email'] # <-- TRAZABILIDAD
+                            }
+                            supabase.table('informes_msa').insert(nuevo_informe).execute()
+                            
+                            # 2. Actualizar el equipo maestro (incluyendo la nueva ruta si cambió)
+                            datos_actualizar_eq = {
+                                "informe_reciente": consecutivo.strip(),
+                                "fecha_vencimiento": fecha_vencimiento_str,
+                                "vigencia_meses": vigencia_estudio,
+                                "link_servidor": link_servidor_estudio.strip() if link_servidor_estudio else None,
+                                "estatus": "VIGENTE",
+                                "modificado_por": st.session_state.user['email'] # <-- TRAZABILIDAD
+                            }
+                            supabase.table('equipos_msa').update(datos_actualizar_eq).eq('id_equipo', id_equipo).execute()
+                            
+                            st.success(f"✅ Informe **{consecutivo.strip()}** guardado correctamente.")
+                            st.info(f"🔄 Equipo **{id_equipo}** actualizado a VIGENTE. Próximo vencimiento: **{fecha_vencimiento_str}**.")
+                            
+                            if vigencia_estudio != vigencia_default:
+                                st.warning(f"⚙️ Nota: La vigencia por defecto del equipo ha sido actualizada a {vigencia_estudio} meses.")
+                            
+                            st.rerun()
+                                
+                        except Exception as e:
+                            st.error(f"❌ Ocurrió un error al procesar la actualización: {e}")
+        else:
+            st.error(f"❌ El ID de equipo **{id_equipo}** no está registrado.")
 
 def mostrar_dashboard_msa():
     st.subheader("📊 Estado General del Laboratorio (MSA)")
