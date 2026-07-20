@@ -6,6 +6,7 @@ import numpy as np
 from pyzbar.pyzbar import decode
 import pandas as pd
 from werkzeug.security import check_password_hash, generate_password_hash
+import io
 
 # --- GESTIÓN DE SESIÓN (LOGIN CON WORKZEUG) ---
 if "user" not in st.session_state:
@@ -96,6 +97,92 @@ def mostrar_resultado_equipo(id_equipo):
     else:
         st.error(f"❌ No se encontró ningún equipo registrado con el ID: **{id_equipo}**")
 
+def modulo_sincronizacion_excel():
+    st.subheader("📥 Sincronización Masiva desde Excel")
+    st.info("Sube el archivo maestro (ej. B_055_4_002_QRO_SP...) para cargar o actualizar equipos en el Calendario de Calibración.")
+    
+    archivo_excel = st.file_uploader("Selecciona el archivo Excel (.xlsx)", type=["xlsx"])
+    
+    if archivo_excel is not None:
+        try:
+            with st.spinner("Procesando archivo Excel..."):
+                # Leemos específicamente la hoja 'CALIBRACIONES', saltando las primeras 3 filas de encabezados visuales
+                df = pd.read_excel(archivo_excel, sheet_name='CALIBRACIONES', header=3)
+                
+                # Filtramos para asegurarnos de que la fila tenga al menos un "NUEVO ID"
+                # Limpiamos los nombres de las columnas eliminando espacios extra al principio/final
+                df.columns = df.columns.str.strip()
+                df = df.dropna(subset=['NUEVO ID'])
+                
+                # Preparamos una vista previa para el usuario
+                st.write(f"📊 Se detectaron {len(df)} registros válidos para procesar.")
+                st.dataframe(df[['NUEVO ID', 'DESCRIPCION', 'MARCA', 'FECHA DE VENC.']].head(5))
+                
+                if st.button("🚀 Iniciar Sincronización a Base de Datos", type="primary"):
+                    barra_progreso = st.progress(0)
+                    texto_progreso = st.empty()
+                    
+                    exitos = 0
+                    errores = 0
+                    
+                    for i, row in df.iterrows():
+                        # Actualizar barra de progreso
+                        progreso_actual = (i + 1) / len(df)
+                        barra_progreso.progress(progreso_actual)
+                        texto_progreso.text(f"Procesando: {row['NUEVO ID']} ({i+1}/{len(df)})")
+                        
+                        try:
+                            # Parsear fechas asegurando formato de BD
+                            fecha_cal_str = pd.to_datetime(row['FECHA DE CAL.']).strftime('%Y-%m-%d') if pd.notnull(row['FECHA DE CAL.']) else None
+                            fecha_venc_str = pd.to_datetime(row['FECHA DE VENC.']).strftime('%Y-%m-%d') if pd.notnull(row['FECHA DE VENC.']) else None
+                            
+                            nuevo_registro = {
+                                "nuevo_id": str(row['NUEVO ID']).strip(),
+                                "id_obsoleto": str(row['ID OBSOLETO']).strip() if pd.notnull(row['ID OBSOLETO']) else None,
+                                "descripcion": str(row['DESCRIPCION']).strip() if pd.notnull(row['DESCRIPCION']) else 'S/D',
+                                "marca": str(row['MARCA']).strip() if pd.notnull(row['MARCA']) else None,
+                                "modelo": str(row['MODELO']).strip() if pd.notnull(row['MODELO']) else None,
+                                "serie": str(row['SERIE']).strip() if pd.notnull(row['SERIE']) else None,
+                                "ubicacion": str(row['UBICACIÓN']).strip() if pd.notnull(row['UBICACIÓN']) else None,
+                                "operacion": str(row['OPERACIÓN']).strip() if pd.notnull(row['OPERACIÓN']) else None,
+                                "alcance_operacion": str(row['ALCANCE DE OPERACIÓN']).strip() if pd.notnull(row['ALCANCE DE OPERACIÓN']) else None,
+                                "control": str(row['CONTROL']).strip() if pd.notnull(row['CONTROL']) else None,
+                                "responsable": str(row['RESPONSABLE']).strip() if pd.notnull(row['RESPONSABLE']) else None,
+                                "proveedor": str(row['PROVEEDOR']).strip() if pd.notnull(row['PROVEEDOR']) else None,
+                                # Manejo seguro de la vigencia (por si viene como texto, 'N/A' o vacío)
+                                "vigencia": int(row['VIGENCIA']) if pd.notnull(row['VIGENCIA']) and str(row['VIGENCIA']).replace('.','',1).isdigit() else 12,
+                                "informe_cal": str(row['INFORME DE CAL.']).strip() if pd.notnull(row['INFORME DE CAL.']) else None,
+                                "fecha_cal": fecha_cal_str,
+                                "fecha_venc": fecha_venc_str,
+                                "estatus": str(row['ESTATUS']).strip().upper() if pd.notnull(row['ESTATUS']) else 'VIGENTE',
+                                "creado_por": st.session_state.user['email']
+                            }
+                            
+                            # Intentamos insertar. El 'upsert=True' actualizará el registro si el 'nuevo_id' ya existe.
+                            # NOTA: Supabase python cliente a veces no soporta upsert nativo directamente en un comando, 
+                            # si falla, hacemos try (insert) except (update)
+                            
+                            # Estrategia de Inserción / Actualización segura
+                            res_busqueda = supabase.table('calendario_calibracion').select('nuevo_id').eq('nuevo_id', nuevo_registro['nuevo_id']).execute()
+                            
+                            if res_busqueda.data:
+                                # Ya existe, hacemos Update
+                                nuevo_registro['modificado_por'] = st.session_state.user['email']
+                                del nuevo_registro['creado_por'] # No sobreescribir quién lo creó originalmente
+                                supabase.table('calendario_calibracion').update(nuevo_registro).eq('nuevo_id', nuevo_registro['nuevo_id']).execute()
+                            else:
+                                # No existe, hacemos Insert
+                                supabase.table('calendario_calibracion').insert(nuevo_registro).execute()
+                                
+                            exitos += 1
+                        except Exception as e:
+                            st.warning(f"Error procesando {row.get('NUEVO ID', 'Fila desconocida')}: {e}")
+                            errores += 1
+                            
+                    st.success(f"✅ Sincronización completada. Éxitos: {exitos} | Errores: {errores}")
+                    
+        except Exception as e:
+            st.error(f"❌ Error al leer el archivo Excel. Asegúrate de que tenga el formato correcto. Detalle: {e}")
 def modulo_busqueda_msa():
     tab_escaner, tab_manual = st.tabs(["📷 Escáner QR", "⌨️ Búsqueda Manual"])
     with tab_escaner:
@@ -546,7 +633,9 @@ def modulo_ajustes_usuarios():
         st.error("🚫 Acceso denegado. Solo los administradores pueden ver esta sección.")
         return
 
-    tab_lista, tab_alta, tab_edicion = st.tabs(["👥 Lista de Usuarios", "➕ Nuevo Usuario", "🔻 Editar / Eliminar"])
+    tab_lista, tab_alta, tab_edicion, tab_sincronizacion = st.tabs([
+        "👥 Lista de Usuarios", "➕ Nuevo Usuario", "🔻 Editar / Eliminar", "📥 Sincronización Excel"
+    ])
     
     with tab_lista:
         res = supabase.table('usuarios_metrologia').select('email, nombre, rol, fecha_creacion').execute()
@@ -626,7 +715,9 @@ def modulo_ajustes_usuarios():
                             st.rerun()
             else:
                 st.warning("⚠️ Usuario no encontrado.")
-
+    
+    with tab_sincronizacion:
+        modulo_sincronizacion_excel()
 # ==========================================
 #              ENRUTADOR PRINCIPAL
 # ==========================================
