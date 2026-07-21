@@ -195,8 +195,10 @@ def modulo_sincronizacion_excel():
                                 errores += 1
                                 
                         st.success(f"✅ Sincronización completada. Procesados con éxito: {exitos} | Errores: {errores}")
-           pass
-
+                        
+            except Exception as e:
+                st.error(f"❌ Error al leer el archivo Excel. Detalle: {e}")
+            
         elif tipo_sinc == "Auditoría de Producto":
             try:
                 with st.spinner("Procesando archivo de Auditorías..."):
