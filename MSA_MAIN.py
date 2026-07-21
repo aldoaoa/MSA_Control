@@ -124,79 +124,128 @@ def parse_int(val, default=12):
 
 def modulo_sincronizacion_excel():
     st.subheader("📥 Sincronización Masiva desde Excel")
-    st.info("Sube el archivo maestro para cargar o actualizar equipos en el Calendario de Calibración.")
     
-    archivo_excel = st.file_uploader("Selecciona el archivo Excel (.xlsx)", type=["xlsx"])
+    tipo_sinc = st.radio("¿Qué tabla deseas sincronizar?", ["Calendario de Calibración", "Auditoría de Producto"], horizontal=True)
+    archivo_excel = st.file_uploader(f"Sube el archivo maestro para {tipo_sinc}", type=["xlsx"])
     
     if archivo_excel is not None:
-        try:
-            with st.spinner("Procesando archivo Excel..."):
-                df = pd.read_excel(archivo_excel, sheet_name='CALIBRACIONES', header=3)
-                df.columns = df.columns.str.strip()
-                df = df.dropna(subset=['NUEVO ID'])
-                
-                # Filtrar filas donde 'NUEVO ID' sea un guion o vacío
-                df = df[~df['NUEVO ID'].astype(str).str.strip().isin(['-', '', 'S/D', 'N/A'])]
-                
-                st.write(f"📊 Se detectaron **{len(df)}** registros válidos para procesar.")
-                st.dataframe(df[['NUEVO ID', 'DESCRIPCION', 'MARCA', 'FECHA DE VENC.']].head(5))
-                
-                if st.button("🚀 Iniciar Sincronización a Base de Datos", type="primary"):
-                    barra_progreso = st.progress(0)
-                    texto_progreso = st.empty()
+        if tipo_sinc == "Calendario de Calibración":
+            try:
+                with st.spinner("Procesando archivo Excel..."):
+                    df = pd.read_excel(archivo_excel, sheet_name='CALIBRACIONES', header=3)
+                    df.columns = df.columns.str.strip()
+                    df = df.dropna(subset=['NUEVO ID'])
                     
-                    exitos = 0
-                    errores = 0
+                    # Filtrar filas donde 'NUEVO ID' sea un guion o vacío
+                    df = df[~df['NUEVO ID'].astype(str).str.strip().isin(['-', '', 'S/D', 'N/A'])]
                     
-                    for i, (_, row) in enumerate(df.iterrows()):
-                        progreso_actual = (i + 1) / len(df)
-                        barra_progreso.progress(progreso_actual)
-                        texto_progreso.text(f"Procesando: {row['NUEVO ID']} ({i+1}/{len(df)})")
+                    st.write(f"📊 Se detectaron **{len(df)}** registros válidos para procesar.")
+                    st.dataframe(df[['NUEVO ID', 'DESCRIPCION', 'MARCA', 'FECHA DE VENC.']].head(5))
+                    
+                    if st.button("🚀 Iniciar Sincronización a Base de Datos", type="primary"):
+                        barra_progreso = st.progress(0)
+                        texto_progreso = st.empty()
                         
-                        try:
-                            fecha_cal_str = parse_fecha(row.get('FECHA DE CAL.'))
-                            fecha_venc_str = parse_fecha(row.get('FECHA DE VENC.'))
-                            vigencia_val = parse_int(row.get('VIGENCIA'), default=12)
+                        exitos = 0
+                        errores = 0
+                        
+                        for i, (_, row) in enumerate(df.iterrows()):
+                            progreso_actual = (i + 1) / len(df)
+                            barra_progreso.progress(progreso_actual)
+                            texto_progreso.text(f"Procesando: {row['NUEVO ID']} ({i+1}/{len(df)})")
                             
-                            nuevo_registro = {
-                                "nuevo_id": str(row['NUEVO ID']).strip(),
-                                "id_obsoleto": str(row['ID OBSOLETO']).strip() if pd.notnull(row.get('ID OBSOLETO')) and str(row.get('ID OBSOLETO')).strip() not in ['-', ''] else None,
-                                "descripcion": str(row['DESCRIPCION']).strip() if pd.notnull(row.get('DESCRIPCION')) and str(row.get('DESCRIPCION')).strip() not in ['-', ''] else 'S/D',
-                                "marca": str(row['MARCA']).strip() if pd.notnull(row.get('MARCA')) and str(row.get('MARCA')).strip() not in ['-', ''] else None,
-                                "modelo": str(row['MODELO']).strip() if pd.notnull(row.get('MODELO')) and str(row.get('MODELO')).strip() not in ['-', ''] else None,
-                                "serie": str(row['SERIE']).strip() if pd.notnull(row.get('SERIE')) and str(row.get('SERIE')).strip() not in ['-', ''] else None,
-                                "ubicacion": str(row['UBICACIÓN']).strip() if pd.notnull(row.get('UBICACIÓN')) and str(row.get('UBICACIÓN')).strip() not in ['-', ''] else None,
-                                "operacion": str(row['OPERACIÓN']).strip() if pd.notnull(row.get('OPERACIÓN')) and str(row.get('OPERACIÓN')).strip() not in ['-', ''] else None,
-                                "alcance_operacion": str(row['ALCANCE DE OPERACIÓN']).strip() if pd.notnull(row.get('ALCANCE DE OPERACIÓN')) and str(row.get('ALCANCE DE OPERACIÓN')).strip() not in ['-', ''] else None,
-                                "control": str(row['CONTROL']).strip() if pd.notnull(row.get('CONTROL')) and str(row.get('CONTROL')).strip() not in ['-', ''] else None,
-                                "responsable": str(row['RESPONSABLE']).strip() if pd.notnull(row.get('RESPONSABLE')) and str(row.get('RESPONSABLE')).strip() not in ['-', ''] else None,
-                                "proveedor": str(row['PROVEEDOR']).strip() if pd.notnull(row.get('PROVEEDOR')) and str(row.get('PROVEEDOR')).strip() not in ['-', ''] else None,
-                                "vigencia": vigencia_val,
-                                "informe_cal": str(row['INFORME DE CAL.']).strip() if pd.notnull(row.get('INFORME DE CAL.')) and str(row.get('INFORME DE CAL.')).strip() not in ['-', ''] else None,
-                                "fecha_cal": fecha_cal_str,
-                                "fecha_venc": fecha_venc_str,
-                                "estatus": str(row['ESTATUS']).strip().upper() if pd.notnull(row.get('ESTATUS')) and str(row.get('ESTATUS')).strip() not in ['-', ''] else 'VIGENTE',
-                                "creado_por": st.session_state.user['email']
-                            }
-                            
-                            res_busqueda = supabase.table('calendario_calibracion').select('nuevo_id').eq('nuevo_id', nuevo_registro['nuevo_id']).execute()
-                            
-                            if res_busqueda.data:
-                                nuevo_registro['modificado_por'] = st.session_state.user['email']
-                                del nuevo_registro['creado_por']
-                                supabase.table('calendario_calibracion').update(nuevo_registro).eq('nuevo_id', nuevo_registro['nuevo_id']).execute()
-                            else:
-                                supabase.table('calendario_calibracion').insert(nuevo_registro).execute()
+                            try:
+                                fecha_cal_str = parse_fecha(row.get('FECHA DE CAL.'))
+                                fecha_venc_str = parse_fecha(row.get('FECHA DE VENC.'))
+                                vigencia_val = parse_int(row.get('VIGENCIA'), default=12)
                                 
-                            exitos += 1
-                        except Exception as e:
-                            st.warning(f"Error procesando {row.get('NUEVO ID', 'Fila sin ID')}: {e}")
-                            errores += 1
-                            
-                    st.success(f"✅ Sincronización completada. Procesados con éxito: {exitos} | Errores: {errores}")
+                                nuevo_registro = {
+                                    "nuevo_id": str(row['NUEVO ID']).strip(),
+                                    "id_obsoleto": str(row['ID OBSOLETO']).strip() if pd.notnull(row.get('ID OBSOLETO')) and str(row.get('ID OBSOLETO')).strip() not in ['-', ''] else None,
+                                    "descripcion": str(row['DESCRIPCION']).strip() if pd.notnull(row.get('DESCRIPCION')) and str(row.get('DESCRIPCION')).strip() not in ['-', ''] else 'S/D',
+                                    "marca": str(row['MARCA']).strip() if pd.notnull(row.get('MARCA')) and str(row.get('MARCA')).strip() not in ['-', ''] else None,
+                                    "modelo": str(row['MODELO']).strip() if pd.notnull(row.get('MODELO')) and str(row.get('MODELO')).strip() not in ['-', ''] else None,
+                                    "serie": str(row['SERIE']).strip() if pd.notnull(row.get('SERIE')) and str(row.get('SERIE')).strip() not in ['-', ''] else None,
+                                    "ubicacion": str(row['UBICACIÓN']).strip() if pd.notnull(row.get('UBICACIÓN')) and str(row.get('UBICACIÓN')).strip() not in ['-', ''] else None,
+                                    "operacion": str(row['OPERACIÓN']).strip() if pd.notnull(row.get('OPERACIÓN')) and str(row.get('OPERACIÓN')).strip() not in ['-', ''] else None,
+                                    "alcance_operacion": str(row['ALCANCE DE OPERACIÓN']).strip() if pd.notnull(row.get('ALCANCE DE OPERACIÓN')) and str(row.get('ALCANCE DE OPERACIÓN')).strip() not in ['-', ''] else None,
+                                    "control": str(row['CONTROL']).strip() if pd.notnull(row.get('CONTROL')) and str(row.get('CONTROL')).strip() not in ['-', ''] else None,
+                                    "responsable": str(row['RESPONSABLE']).strip() if pd.notnull(row.get('RESPONSABLE')) and str(row.get('RESPONSABLE')).strip() not in ['-', ''] else None,
+                                    "proveedor": str(row['PROVEEDOR']).strip() if pd.notnull(row.get('PROVEEDOR')) and str(row.get('PROVEEDOR')).strip() not in ['-', ''] else None,
+                                    "vigencia": vigencia_val,
+                                    "informe_cal": str(row['INFORME DE CAL.']).strip() if pd.notnull(row.get('INFORME DE CAL.')) and str(row.get('INFORME DE CAL.')).strip() not in ['-', ''] else None,
+                                    "fecha_cal": fecha_cal_str,
+                                    "fecha_venc": fecha_venc_str,
+                                    "estatus": str(row['ESTATUS']).strip().upper() if pd.notnull(row.get('ESTATUS')) and str(row.get('ESTATUS')).strip() not in ['-', ''] else 'VIGENTE',
+                                    "creado_por": st.session_state.user['email']
+                                }
+                                
+                                res_busqueda = supabase.table('calendario_calibracion').select('nuevo_id').eq('nuevo_id', nuevo_registro['nuevo_id']).execute()
+                                
+                                if res_busqueda.data:
+                                    nuevo_registro['modificado_por'] = st.session_state.user['email']
+                                    del nuevo_registro['creado_por']
+                                    supabase.table('calendario_calibracion').update(nuevo_registro).eq('nuevo_id', nuevo_registro['nuevo_id']).execute()
+                                else:
+                                    supabase.table('calendario_calibracion').insert(nuevo_registro).execute()
+                                    
+                                exitos += 1
+                            except Exception as e:
+                                st.warning(f"Error procesando {row.get('NUEVO ID', 'Fila sin ID')}: {e}")
+                                errores += 1
+                                
+                        st.success(f"✅ Sincronización completada. Procesados con éxito: {exitos} | Errores: {errores}")
+           pass
+
+        elif tipo_sinc == "Auditoría de Producto":
+            try:
+                with st.spinner("Procesando archivo de Auditorías..."):
+                    df = pd.read_excel(archivo_excel, sheet_name='CALENDARIO', header=5)
+                    df.columns = df.columns.str.strip()
+                    df = df.dropna(subset=['NUMERO DE AUDITORIA'])
+                    df = df[~df['NUMERO DE AUDITORIA'].astype(str).str.strip().isin(['-', '', 'S/D', 'N/A'])]
                     
-        except Exception as e:
-            st.error(f"❌ Error al leer el archivo Excel. Detalle: {e}")
+                    st.write(f"📊 Se detectaron **{len(df)}** auditorías válidas.")
+                    st.dataframe(df[['NUMERO DE AUDITORIA', 'PROYECTO', 'CLIENTE', 'ESTATUS']].head(5))
+                    
+                    if st.button("🚀 Iniciar Sincronización de Auditorías", type="primary"):
+                        barra_prog = st.progress(0)
+                        exitos, errores = 0, 0
+                        
+                        for i, (_, row) in enumerate(df.iterrows()):
+                            barra_prog.progress((i + 1) / len(df))
+                            try:
+                                nuevo_reg = {
+                                    "num_auditoria": str(row['NUMERO DE AUDITORIA']).strip(),
+                                    "ubicacion": str(row['UBICACIÓN']).strip() if pd.notnull(row.get('UBICACIÓN')) else None,
+                                    "cliente": str(row['CLIENTE']).strip() if pd.notnull(row.get('CLIENTE')) else None,
+                                    "proyecto": str(row['PROYECTO']).strip() if pd.notnull(row.get('PROYECTO')) else 'S/D',
+                                    "no_parte_bcs": str(row['NO. PARTE BCS']).strip() if pd.notnull(row.get('NO. PARTE BCS')) else None,
+                                    "no_parte_cliente": str(row['NO. PARTE CLIENTE']).strip() if pd.notnull(row.get('NO. PARTE CLIENTE')) else None,
+                                    "lote_auditado": parse_fecha(row.get('LOTE AUDITADO')),
+                                    "vigencia": parse_int(row.get('VIGENCIA'), 12),
+                                    "ultima_fecha_ejecucion": parse_fecha(row.get('ULTIMA FECHA DE EJECUCIÓN.')),
+                                    "fecha_programacion": parse_fecha(row.get('FECHA DE PROGRAMACIÓN')),
+                                    "estatus": str(row['ESTATUS']).strip().upper() if pd.notnull(row.get('ESTATUS')) else 'PROGRAMADA',
+                                    "responsable": str(row['RESPONSABLE']).strip() if pd.notnull(row.get('RESPONSABLE')) else None,
+                                    "comentarios": str(row['COMENTARIOS ']).strip() if pd.notnull(row.get('COMENTARIOS ')) else None,
+                                    "creado_por": st.session_state.user['email']
+                                }
+                                
+                                res = supabase.table('calendario_auditoria_producto').select('num_auditoria').eq('num_auditoria', nuevo_reg['num_auditoria']).execute()
+                                
+                                if res.data:
+                                    nuevo_reg['modificado_por'] = st.session_state.user['email']
+                                    del nuevo_reg['creado_por']
+                                    supabase.table('calendario_auditoria_producto').update(nuevo_reg).eq('num_auditoria', nuevo_reg['num_auditoria']).execute()
+                                else:
+                                    supabase.table('calendario_auditoria_producto').insert(nuevo_reg).execute()
+                                exitos += 1
+                            except Exception as e:
+                                errores += 1
+                        st.success(f"✅ Sincronización completada. Éxitos: {exitos} | Errores: {errores}")
+            except Exception as e:
+                st.error(f"❌ Error al leer el Excel de Auditorías: {e}")
             
 def modulo_busqueda_msa():
     tab_escaner, tab_manual = st.tabs(["📷 Escáner QR", "⌨️ Búsqueda Manual"])
@@ -222,6 +271,169 @@ def modulo_busqueda_msa():
                 mostrar_resultado_equipo(id_busqueda.strip())
             else:
                 st.warning("⚠️ Por favor, ingresa un ID válido.")
+
+
+# ==========================================
+#     NUEVO MÓDULO: AUDITORÍA DE PRODUCTO
+# ==========================================
+
+def mostrar_resultado_auditoria(num_auditoria):
+    st.markdown("---")
+    with st.spinner("Buscando en Calendario de Auditoría..."):
+        respuesta = supabase.table('calendario_auditoria_producto').select("*").eq('num_auditoria', num_auditoria).execute()
+        
+    if respuesta.data:
+        aud = respuesta.data[0]
+        estatus = aud['estatus'].upper() if aud['estatus'] else 'PROGRAMADA'
+        
+        # Color del estatus
+        if estatus == 'REALIZADA':
+            st.success(f"### 🟢 Estatus: {estatus}")
+        elif estatus in ['PROGRAMADA', 'EN PROCESO']:
+            st.warning(f"### 🟡 Estatus: {estatus}")
+        else: # CANCELADA, RECHAZADA, EN PAUSA
+            st.error(f"### 🔴 Estatus: {estatus}")
+            
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.markdown("#### Datos de la Auditoría")
+            st.write(f"**No. Auditoría:** `{aud['num_auditoria']}`")
+            st.write(f"**Cliente:** {aud.get('cliente', 'S/D')}")
+            st.write(f"**Proyecto:** {aud.get('proyecto', 'S/D')}")
+            st.write(f"**Ubicación:** {aud.get('ubicacion', 'S/D')}")
+            
+        with c2:
+            st.markdown("#### Identificación del Producto")
+            st.write(f"**No. Parte BCS:** {aud.get('no_parte_bcs', 'S/D')}")
+            st.write(f"**No. Parte Cliente:** {aud.get('no_parte_cliente', 'S/D')}")
+            st.write(f"**Lote Auditado:** {aud.get('lote_auditado', 'N/A')}")
+            st.write(f"**Responsable:** {aud.get('responsable', 'S/D')}")
+
+        with c3:
+            st.markdown("#### Fechas de Control")
+            st.write(f"**Última Ejecución:** {aud.get('ultima_fecha_ejecucion', 'S/D')}")
+            st.write(f"**Próxima Programación:** {aud.get('fecha_programacion', 'S/D')}")
+            st.write(f"**Vigencia:** {aud.get('vigencia', 12)} meses")
+            
+        if aud.get('comentarios'):
+            st.markdown("---")
+            st.write(f"**Comentarios:** {aud['comentarios']}")
+    else:
+        st.error(f"❌ No se encontró la auditoría con número: **{num_auditoria}**")
+
+
+def modulo_busqueda_auditoria():
+    st.info("Ingresa el Número de Auditoría para consultar su estatus (Ej. BCS-AUD-001-26)")
+    id_busqueda = st.text_input("Número de Auditoría:", key="texto_busq_aud")
+    if st.button("🔍 Buscar Auditoría", type="primary", use_container_width=True, key="btn_busq_aud"):
+        if id_busqueda:
+            mostrar_resultado_auditoria(id_busqueda.strip())
+
+def modulo_altas_bajas_auditoria():
+    accion = st.radio("Acción:", ["➕ Programar Auditoría", "🔻 Modificar Estatus"], horizontal=True, key="radio_acc_aud")
+    st.markdown("---")
+    
+    opciones_estatus_aud = ["PROGRAMADA", "EN PROCESO", "REALIZADA", "CANCELADA", "RECHAZADA", "EN PAUSA"]
+    
+    if accion == "➕ Programar Auditoría":
+        with st.form("form_alta_aud", clear_on_submit=True):
+            st.subheader("Registrar Nueva Auditoría de Producto")
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                num_aud = st.text_input("Número de Auditoría * (Ej. BCS-AUD-012-26)")
+                cliente = st.text_input("Cliente *")
+                proyecto = st.text_input("Proyecto *")
+                ubicacion = st.text_input("Ubicación (Ej. FA)")
+            with c2:
+                np_bcs = st.text_input("No. Parte BCS")
+                np_cliente = st.text_input("No. Parte Cliente")
+                responsable = st.text_input("Responsable")
+                vigencia = st.number_input("Vigencia (Meses)", min_value=1, value=12)
+            with c3:
+                lote = st.date_input("Lote Auditado (Opcional)")
+                fecha_prog = st.date_input("Fecha de Programación *")
+                estatus = st.selectbox("Estatus Inicial", opciones_estatus_aud)
+                comentarios = st.text_area("Comentarios")
+
+            enviado = st.form_submit_button("💾 Guardar Auditoría", type="primary", use_container_width=True)
+            
+            if enviado:
+                if not num_aud or not cliente or not proyecto:
+                    st.error("⚠️ El No. de Auditoría, Cliente y Proyecto son obligatorios.")
+                else:
+                    nuevo_registro = {
+                        "num_auditoria": num_aud.strip(),
+                        "cliente": cliente.strip(),
+                        "proyecto": proyecto.strip(),
+                        "ubicacion": ubicacion.strip() if ubicacion else None,
+                        "no_parte_bcs": np_bcs.strip() if np_bcs else None,
+                        "no_parte_cliente": np_cliente.strip() if np_cliente else None,
+                        "responsable": responsable.strip() if responsable else None,
+                        "vigencia": vigencia,
+                        "fecha_programacion": pd.to_datetime(fecha_prog).strftime('%Y-%m-%d'),
+                        "lote_auditado": pd.to_datetime(lote).strftime('%Y-%m-%d') if lote else None,
+                        "estatus": estatus,
+                        "comentarios": comentarios.strip() if comentarios else None,
+                        "creado_por": st.session_state.user['email']
+                    }
+                    try:
+                        supabase.table("calendario_auditoria_producto").insert(nuevo_registro).execute()
+                        st.success(f"✅ Auditoría {num_aud} programada con éxito.")
+                    except Exception as e:
+                        st.error(f"❌ Error al guardar (¿El Número ya existe?): {e}")
+    else:
+        st.subheader("Actualizar Estatus / Cerrar Auditoría")
+        id_mod = st.text_input("Número de Auditoría a modificar:", key="input_mod_aud")
+        
+        if st.button("Buscar para Modificar", key="btn_mod_aud"):
+            st.session_state['id_mod_aud'] = id_mod.strip()
+            
+        if 'id_mod_aud' in st.session_state:
+            res = supabase.table('calendario_auditoria_producto').select('proyecto, cliente, estatus').eq('num_auditoria', st.session_state['id_mod_aud']).execute()
+            if res.data:
+                aud = res.data[0]
+                estatus_actual = aud['estatus'] if aud['estatus'] in opciones_estatus_aud else "PROGRAMADA"
+                
+                with st.form("form_update_aud"):
+                    st.info(f"Actualizando: **{aud['proyecto']}** ({aud['cliente']})")
+                    nuevo_est = st.selectbox("Estatus", opciones_estatus_aud, index=opciones_estatus_aud.index(estatus_actual))
+                    fecha_ejecucion = st.date_input("Última Fecha de Ejecución (Si aplica)")
+                    
+                    if st.form_submit_button("Actualizar Estatus", type="primary"):
+                        datos_update = {
+                            'estatus': nuevo_est,
+                            'modificado_por': st.session_state.user['email']
+                        }
+                        if nuevo_est == 'REALIZADA':
+                            datos_update['ultima_fecha_ejecucion'] = pd.to_datetime(fecha_ejecucion).strftime('%Y-%m-%d')
+                            
+                        supabase.table('calendario_auditoria_producto').update(datos_update).eq('num_auditoria', st.session_state['id_mod_aud']).execute()
+                        st.success("✅ Auditoría actualizada.")
+                        del st.session_state['id_mod_aud']
+                        st.rerun()
+
+def mostrar_dashboard_auditoria():
+    st.subheader("📊 Panel de Auditorías de Producto")
+    res = supabase.table('calendario_auditoria_producto').select('num_auditoria, proyecto, cliente, fecha_programacion, estatus').execute()
+    
+    if res.data:
+        df = pd.DataFrame(res.data)
+        total = len(df)
+        realizadas = len(df[df['estatus'] == 'REALIZADA'])
+        programadas = len(df[df['estatus'].isin(['PROGRAMADA', 'EN PROCESO'])])
+        pausadas_canceladas = len(df[df['estatus'].isin(['CANCELADA', 'RECHAZADA', 'EN PAUSA'])])
+        
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("📋 Total Auditorías", total)
+        c2.metric("🟢 Realizadas", realizadas)
+        c3.metric("🟡 Programadas / En Proceso", programadas)
+        c4.metric("🔴 Pausadas / Canceladas", pausadas_canceladas)
+        
+        st.markdown("---")
+        df_visual = df.rename(columns={'num_auditoria': 'No. Auditoría', 'proyecto': 'Proyecto', 'cliente': 'Cliente', 'fecha_programacion': 'Fecha Prog.', 'estatus': 'Estatus'})
+        st.dataframe(df_visual, use_container_width=True, hide_index=True)
+    else:
+        st.info("No hay auditorías registradas en el sistema.")
 
 def modulo_altas_bajas_msa():
     accion = st.radio("Selecciona la acción a realizar:", ["➕ Alta de Equipo", "🔻 Modificar Estatus / Baja"], horizontal=True, key="radio_acc_msa")
@@ -739,8 +951,8 @@ def modulo_ajustes_usuarios():
 with st.sidebar:
     st.title("⚙️ Navegación")
     
-    # Definir opciones base
-    opciones_modulo = ["Control MSA", "Calendario de Calibración"]
+    # En la configuración de st.sidebar
+    opciones_modulo = ["Control MSA", "Calendario de Calibración", "Auditoría de Producto"]
     
     # Agregar 'Ajustes' solo si es admin
     if st.session_state.user and st.session_state.user.get('rol') == 'admin':
@@ -787,3 +999,9 @@ else:
             with tab_consulta: modulo_busqueda_calibracion()
             with tab_altas: modulo_altas_bajas_calibracion()
             with tab_informe: modulo_informes_calibracion()
+        elif modulo_activo == "Auditoría de Producto":
+            with tab_dash: mostrar_dashboard_auditoria()
+            with tab_consulta: modulo_busqueda_auditoria()
+            with tab_altas: modulo_altas_bajas_auditoria()
+            with tab_informe: 
+                st.info("Para actualizar fechas de auditorías, utiliza la pestaña Altas/Bajas -> Modificar Estatus")
